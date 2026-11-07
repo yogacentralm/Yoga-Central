@@ -47,7 +47,8 @@ const ADMIN_EDITABLE = ['Instructores', 'Clases', 'Horario', 'Paquetes', 'Videos
 
 // Claves de Config que se envían al público (el resto, p. ej. notas internas, no).
 const PUBLIC_CONFIG = ['nombre', 'lema', 'descripcion', 'direccion', 'ciudad', 'telefono', 'whatsapp', 'email',
-  'facebook', 'instagram', 'heroImagen', 'datosPago', 'linkPago', 'horasCancelacion', 'terminos', 'mapa', 'favicon']
+  'facebook', 'instagram', 'heroImagen', 'datosPago', 'linkPago', 'horasCancelacion', 'terminos', 'mapa', 'favicon',
+  'pagoBanco', 'pagoTitular', 'pagoClabe', 'pagoTarjeta']
   .concat(COLOR_KEYS);
 
 // ---------------------------------------------------------------------------
@@ -58,6 +59,8 @@ function doGet() {
   const page = HtmlService.createTemplateFromFile('Index').evaluate()
     .setTitle(cfg.nombre || 'yogacentral')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+  // Permite mostrar el sitio dentro de la página corta de GitHub Pages (docs/index.html).
+  page.setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
   // El ícono de pestaña es opcional: si Google rechaza la URL, la página carga igual.
   try { if (cfg.favicon) page.setFaviconUrl(cfg.favicon); } catch (e) { console.warn('Favicon no válido: ' + e); }
   return page;
@@ -281,6 +284,8 @@ function saveConfig_(config) {
     if (!/^[a-zA-Z][\w]{0,40}$/.test(k)) return;
     const v = String(config[k] == null ? '' : config[k]).trim();
     if (COLOR_KEYS.indexOf(k) >= 0 && v && !/^#[0-9a-fA-F]{6}$/.test(v)) throw userError_('Color no válido: ' + v + ' (usa el formato #RRGGBB).');
+    if (k === 'pagoClabe' && v && !/^\d{18}$/.test(v.replace(/\s/g, ''))) throw userError_('La CLABE debe tener 18 dígitos.');
+    if (k === 'pagoTarjeta' && v && !/^\d{15,16}$/.test(v.replace(/[\s-]/g, ''))) throw userError_('El número de tarjeta debe tener 16 dígitos.');
     if (k in current) update_('Config', k, { valor: v });
     else insert_('Config', { clave: k, valor: v });
   });
@@ -755,7 +760,11 @@ const SEED = {
     { clave: 'facebook', valor: 'https://www.facebook.com/yogacentralmx/' },
     { clave: 'instagram', valor: 'https://www.instagram.com/yogacentralmx/' },
     { clave: 'heroImagen', valor: '' },
-    { clave: 'datosPago', valor: 'Transferencia a la cuenta del estudio (escribe aquí banco, titular y CLABE). Sube la foto del comprobante y lo validamos el mismo día.' },
+    { clave: 'pagoBanco', valor: '' },
+    { clave: 'pagoTitular', valor: '' },
+    { clave: 'pagoClabe', valor: '' },
+    { clave: 'pagoTarjeta', valor: '' },
+    { clave: 'datosPago', valor: 'Sube la foto del comprobante y lo validamos el mismo día.' },
     { clave: 'linkPago', valor: '' },
     { clave: 'horasCancelacion', valor: '2' },
     { clave: 'mapa', valor: '' },

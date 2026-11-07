@@ -530,10 +530,11 @@ function pagePackages(app) {
     <h1>Paquetes</h1>
     <p class="muted">La vigencia empieza cuando validamos tu pago. Todas las clases del horario están incluidas.</p>
     <div class="grid grid-3" style="margin-top:24px">${S.data.paquetes.map(pkgCard).join('')}</div>
-    <div class="card" style="margin-top:32px"><h3>¿Cómo pago?</h3><p class="muted" style="white-space:pre-line">${esc(cfg().datosPago)}</p>
-    ${waLink() ? `<a class="btn btn-ghost" href="${esc(waLink('Hola, tengo una duda sobre los paquetes'))}" target="_blank" rel="noopener">Tengo una duda</a>` : ''}</div>
+    <div class="card" style="margin-top:32px"><h3>¿Cómo pago?</h3>${payBox()}
+    ${waLink() ? `<p style="margin-top:14px"><a class="btn btn-ghost" href="${esc(waLink('Hola, tengo una duda sobre los paquetes'))}" target="_blank" rel="noopener">Tengo una duda</a></p>` : ''}</div>
   </div>`;
   bindPackages(app);
+  bindCopy(app);
 }
 
 function buyFlow(paqueteId) {
@@ -556,8 +557,7 @@ function buyFlow(paqueteId) {
   const body = openModal('Comprar ' + p.nombre, `
     <div class="price">${money(p.precio)}</div>
     <p class="muted small">${p.clases === 0 ? 'Clases ilimitadas' : p.clases + ' clases'} · vigencia ${p.vigenciaDias} días</p>
-    ${c.linkPago ? `<p><a class="btn btn-accent" href="${esc(c.linkPago)}" target="_blank" rel="noopener">Pagar en línea</a></p>` : ''}
-    <div class="card" style="background:var(--soft);box-shadow:none"><b>Datos para pagar</b><p class="small" style="white-space:pre-line;margin:6px 0 0">${esc(c.datosPago)}</p></div>
+    <div class="card" style="background:var(--soft);box-shadow:none"><b>Datos para pagar</b>${payBox()}</div>
     <form id="buyForm" style="margin-top:16px">
       <label><span>Comprobante de pago (foto o PDF, máx. 5 MB)</span><input type="file" name="archivo" accept="${ACCEPT.comprobante}"></label>
       <p class="muted small" style="margin-top:-8px">Si aún no pagas puedes subirlo después desde “Mi cuenta”.</p>
@@ -575,6 +575,35 @@ function buyFlow(paqueteId) {
       go('panel/compras');
     }).catch(() => {});
   });
+  bindCopy(body);
+}
+
+// Datos bancarios del estudio (Administrar → Sitio) con botón para copiar.
+function payBox() {
+  const c = cfg();
+  const rows = [['Banco', c.pagoBanco], ['Titular', c.pagoTitular], ['CLABE', c.pagoClabe, true], ['Tarjeta', c.pagoTarjeta, true]]
+    .filter(r => r[1]);
+  const table = rows.length ? `<dl class="paydata">${rows.map(r => `<dt>${r[0]}</dt><dd><span class="mono">${esc(r[1])}</span>${r[2]
+    ? ` <button type="button" class="btn btn-ghost btn-sm" data-copy="${esc(String(r[1]).replace(/[\s-]/g, ''))}">Copiar</button>` : ''}</dd>`).join('')}</dl>` : '';
+  const link = c.linkPago ? `<p style="margin:12px 0 0"><a class="btn btn-accent" href="${esc(c.linkPago)}" target="_blank" rel="noopener">Pagar en línea</a></p>` : '';
+  const notes = c.datosPago ? `<p class="small muted" style="white-space:pre-line;margin:10px 0 0">${esc(c.datosPago)}</p>` : '';
+  return table + link + notes || '<p class="small muted" style="margin:6px 0 0">Pronto publicaremos los datos de pago. Mientras, escríbenos por WhatsApp.</p>';
+}
+
+function bindCopy(root) {
+  $$('[data-copy]', root).forEach(b => b.addEventListener('click', async () => {
+    const text = b.dataset.copy;
+    let ok = false;
+    try { await navigator.clipboard.writeText(text); ok = true; } catch (e) {
+      // El marco de Apps Script puede bloquear el portapapeles: se usa el método clásico.
+      const t = document.createElement('textarea');
+      t.value = text; t.style.position = 'fixed'; t.style.opacity = '0';
+      document.body.appendChild(t); t.select();
+      try { ok = document.execCommand('copy'); } catch (e2) { ok = false; }
+      t.remove();
+    }
+    toast(ok ? 'Copiado: ' + text : 'Mantén presionado el número para copiarlo.', !ok);
+  }));
 }
 
 function personCard(p) {
@@ -885,11 +914,17 @@ const CONFIG_FIELDS = [
   { k: 'heroImagen', l: 'Imagen de portada', t: 'image' }, { k: 'direccion', l: 'Dirección' }, { k: 'ciudad', l: 'Ciudad' },
   { k: 'telefono', l: 'Teléfono' }, { k: 'whatsapp', l: 'WhatsApp', hint: 'Con lada de país, ej. 528711234567' }, { k: 'email', l: 'Correo' },
   { k: 'instagram', l: 'Instagram (URL)' }, { k: 'facebook', l: 'Facebook (URL)' },
-  { k: 'datosPago', l: 'Instrucciones de pago', t: 'textarea' }, { k: 'linkPago', l: 'Link de pago en línea (Mercado Pago, Stripe…)', hint: 'Opcional' },
   { k: 'horasCancelacion', l: 'Horas mínimas para cancelar', t: 'number' },
   { k: 'mapa', l: 'URL del mapa incrustado', hint: 'Opcional; si se deja vacío se usa la dirección' },
   { k: 'terminos', l: 'Términos (un punto por línea)', t: 'textarea' },
   { k: 'favicon', l: 'Ícono de la pestaña', t: 'image', hint: 'Opcional. PNG cuadrado.' },
+];
+const PAY_FIELDS = [
+  { k: 'pagoBanco', l: 'Banco', hint: 'Ej. BBVA, Banorte, Santander' }, { k: 'pagoTitular', l: 'Titular de la cuenta' },
+  { k: 'pagoClabe', l: 'CLABE interbancaria', hint: '18 dígitos, para transferencias' },
+  { k: 'pagoTarjeta', l: 'Número de tarjeta', hint: 'Opcional, para depósitos en OXXO o ventanilla' },
+  { k: 'linkPago', l: 'Link de pago en línea', hint: 'Opcional: Mercado Pago, Stripe, Clip…' },
+  { k: 'datosPago', l: 'Instrucciones adicionales', t: 'textarea', hint: 'Ej. pon tu nombre en el concepto de la transferencia' },
 ];
 const COLOR_FIELDS = [
   { k: 'colorPrimario', l: 'Botones y acciones', t: 'color' }, { k: 'colorAcento', l: 'Logo y detalles', t: 'color' },
@@ -1152,6 +1187,9 @@ function adminSite(box) {
     <h2>Colores</h2><p class="muted small">Los cambios se ven al momento; se publican al tocar <b>Guardar cambios</b>.</p>
     <div class="color-row">${COLOR_FIELDS.map(f => fieldHtml(f, c[f.k] || BRAND_COLORS[f.k])).join('')}</div>
     <p><button class="btn btn-ghost btn-sm" type="button" id="resetColors">Restaurar colores de marca</button></p>
+    <h2 style="margin-top:28px">Datos para recibir pagos</h2>
+    <p class="muted small">Los alumnos los ven al comprar un paquete y pueden copiar la CLABE con un toque.</p>
+    <div class="form-grid">${PAY_FIELDS.map(f => fieldHtml(f, c[f.k] || '')).join('')}</div>
     <h2 style="margin-top:28px">Datos del sitio</h2><div class="form-grid">${CONFIG_FIELDS.map(f => fieldHtml(f, c[f.k] || '')).join('')}</div>
     <button class="btn btn-primary" type="submit">Guardar cambios</button></form>`;
   bindUploads(box);
