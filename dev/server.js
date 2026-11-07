@@ -150,7 +150,11 @@ function renderIndex() {
   // Apps Script recorta el script desde cualquier barra-asterisco: en local no pasa, así que se avisa aquí.
   ['App', 'Index'].forEach(n => {
     const lines = read(n).split('\n');
-    lines.forEach((l, i) => { if (/\/\*|\*\//.test(l)) console.warn(`AVISO ${n}.html:${i + 1}: barra-asterisco rompe la página en Apps Script → ${l.trim().slice(0, 80)}`); });
+    lines.forEach((l, i) => {
+      if (/\/\*|\*\//.test(l)) console.warn(`AVISO ${n}.html:${i + 1}: barra-asterisco rompe la página en Apps Script → ${l.trim().slice(0, 80)}`);
+      // Una URL que no empieza justo después de comilla simple suele estar en una plantilla `…`: Apps Script la corta.
+      if (/(^|[^'])https?:\/\//.test(l)) console.warn(`AVISO ${n}.html:${i + 1}: URL fuera de comillas simples, Apps Script corta la línea → ${l.trim().slice(0, 80)}`);
+    });
   });
   const shim = `<script>
   window.google = { script: { run: (function make(ok, fail) {

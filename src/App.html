@@ -150,7 +150,11 @@ const byId = (list, id) => (list || []).find(x => x.id === id) || {};
 const clase = id => byId(S.data.clases, id);
 const instructor = id => byId(S.data.instructores, id);
 const initials = name => String(name || '?').split(/\s+/).slice(0, 2).map(w => w[0]).join('').toUpperCase();
+// Las URL completas van siempre entre comillas simples: dentro de una plantilla con acento
+// grave, Apps Script toma la doble barra como comentario y corta el resto de la línea.
 const waLink = text => cfg().whatsapp ? 'https://wa.me/' + cfg().whatsapp.replace(/\D/g, '') + '?text=' + encodeURIComponent(text || 'Hola, quiero información de las clases') : '';
+const waPhoneLink = tel => { const d = String(tel || '').replace(/\D/g, ''); return 'https://wa.me/' + (d.length === 10 ? '52' : '') + d; };
+const mapsSearchLink = (dir, ciudad) => 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent((dir || '') + ', ' + (ciudad || ''));
 const freePackage = () => (S.data.paquetes || []).find(p => p.precio === 0);
 
 // Páginas donde se puede poner galería o música (mismas claves que PAGES en Code.gs).
@@ -450,7 +454,7 @@ function pageHome(app) {
   <section class="section"><div class="wrap grid grid-2">
     <div><h2>Visítanos</h2><p>${esc(c.direccion)}<br>${esc(c.ciudad)}</p>
       <div class="row">
-        <a class="btn btn-ghost" target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent((c.direccion || '') + ', ' + (c.ciudad || ''))}">Cómo llegar</a>
+        <a class="btn btn-ghost" target="_blank" rel="noopener" href="${esc(mapsSearchLink(c.direccion, c.ciudad))}">Cómo llegar</a>
         ${c.telefono ? `<a class="btn btn-ghost" href="tel:${esc(c.telefono.replace(/\s/g, ''))}">Llamar</a>` : ''}
       </div></div>
     <iframe class="map" loading="lazy" title="Mapa" src="${esc(c.mapa || 'https://www.google.com/maps?q=' + encodeURIComponent((c.direccion || '') + ', ' + (c.ciudad || '')) + '&output=embed')}"></iframe>
@@ -1125,7 +1129,7 @@ async function adminStudents(box) {
     $('#stuBody', box).innerHTML = rows.map(u => `<tr><td>${esc(u.nombre)}${u.rol !== 'alumno' ? ` <span class="tag">${esc(ROLE_LABEL[u.rol])}</span>` : ''}${!u.activo ? ' <span class="tag tag-bad">inactivo</span>' : ''}
       ${u.rol === 'instructor' ? `<div class="muted small">Ficha: ${esc(instructor(u.instructorId).nombre || 'sin ligar')}</div>` : ''}
       <div class="muted small">${esc(u.email)}</div></td>
-      <td>${u.telefono ? `<a href="https://wa.me/${esc((u.telefono.replace(/\D/g, '').length === 10 ? '52' : '') + u.telefono.replace(/\D/g, ''))}" target="_blank" rel="noopener">${esc(u.telefono)}</a>` : '—'}</td>
+      <td>${u.telefono ? `<a href="${esc(waPhoneLink(u.telefono))}" target="_blank" rel="noopener">${esc(u.telefono)}</a>` : '—'}</td>
       <td>${esc(u.clasesDisponibles)}</td><td>${u.vence ? fmtDate(u.vence) : '—'}</td>
       <td><div class="row" style="flex-wrap:nowrap"><button class="btn btn-primary btn-sm" data-sell="${esc(u.id)}">Vender</button>
         <button class="btn btn-ghost btn-sm" data-role="${esc(u.id)}">Rol</button>

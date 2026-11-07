@@ -64,6 +64,15 @@ clasp push
 ```
 Después sigue los pasos 4 a 6 de la opción A.
 
+### Regla importante al editar `App.html`
+Apps Script recorta el JavaScript antes de servirlo. Borra todo lo que sigue a `//` en cada línea, salvo que esté entre **comillas simples**, y todo lo que sigue a un barra-asterisco. En el simulador no pasa, así que:
+- Comenta solo con `//` al principio de la línea y nunca uses barra-asterisco.
+- Escribe las direcciones web entre comillas simples (`'https://…'`), nunca dentro de una plantilla con acento grave ni entre comillas dobles.
+- Antes de publicar, ejecuta el verificador. Si dice *ERROR*, no publiques:
+```bash
+node dev/check.js
+```
+
 ### Actualizar después de cambiar el código
 **Implementar → Gestionar implementaciones → ✏️ → Versión: nueva → Implementar.** La URL no cambia.
 
