@@ -1,0 +1,1430 @@
+'use strict';
+// IMPORTANTE: no escribir barra-asterisco en este archivo, ni en comentarios ni en textos
+// (por ejemplo, el accept de imágenes con comodín). Apps Script lo toma como inicio de
+// comentario y recorta el script. Usa // para comentar y las listas ACCEPT de abajo.
+const ACCEPT = {
+  imagen: 'image/png,image/jpeg,image/webp,image/gif',
+  comprobante: 'image/png,image/jpeg,image/webp,image/heic,application/pdf',
+  audio: 'audio/mpeg,audio/mp4,audio/x-m4a,audio/aac,audio/ogg,audio/wav,.mp3,.m4a,.ogg,.wav',
+};
+
+// ---------------------------------------------------------------------------
+// Estado y utilidades
+
+const TZ = 'America/Mexico_City';
+const DAYS = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+const DAYS_SHORT = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+const MONTHS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+
+const S = {
+  data: null,      // public.bootstrap
+  token: null,
+  user: null,
+  weekStart: null, // lunes de la semana visible
+  occ: {},         // ocupación por "horarioId|fecha"
+  classFilter: '',
+  returnTo: null,
+  adm: {},         // caché de listas del panel de administración
+};
+
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+  set(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch (e) { return; } }, // sin almacenamiento
+};
+
+function esc(v) {
+  return String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+const $ = (sel, root) => (root || document).querySelector(sel);
+const $$ = (sel, root) => Array.from((root || document).querySelectorAll(sel));
+const money = n => {
+  const v = Number(n) || 0;
+  const cents = Number.isInteger(v) ? 0 : 2;
+  return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN', minimumFractionDigits: cents, maximumFractionDigits: cents }).format(v);
+};
+
+function nowMx() {
+  return new Intl.DateTimeFormat('sv-SE', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })
+    .format(new Date()).replace(',', '');
+}
+const todayMx = () => nowMx().slice(0, 10);
+function addDays(ymd, n) {
+  const p = ymd.split('-').map(Number);
+  return new Date(Date.UTC(p[0], p[1] - 1, p[2] + n)).toISOString().slice(0, 10);
+}
+function weekday(ymd) { const p = ymd.split('-').map(Number); return new Date(Date.UTC(p[0], p[1] - 1, p[2])).getUTCDay(); }
+function mondayOf(ymd) { return addDays(ymd, -((weekday(ymd) + 6) % 7)); }
+function fmtDate(ymd, withDay) {
+  if (!ymd) return '—';
+  const p = ymd.slice(0, 10).split('-').map(Number);
+  return (withDay ? DAYS[weekday(ymd.slice(0, 10))] + ' ' : '') + p[2] + ' ' + MONTHS[p[1] - 1] + (withDay ? '' : ' ' + p[0]);
+}
+function fmtTime(hhmm) {
+  if (!hhmm) return '';
+  const [h, m] = hhmm.split(':').map(Number);
+  return ((h % 12) || 12) + ':' + String(m).padStart(2, '0') + (h < 12 ? ' am' : ' pm');
+}
+
+// En GitHub Pages el generador define window.YC_API (la URL /exec) y se usa fetch;
+// servido por Apps Script se usa google.script.run.
+const API_URL = window.YC_API || '';
+const offlineError = () => Object.assign(new Error('Sin conexión. Revisa tu internet e intenta de nuevo.'), { offline: true });
+
+function send(action, payload) {
+  if (API_URL) {
+    if (navigator.onLine === false) return Promise.reject(offlineError());
+    return fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // sin verificación CORS previa
+      body: JSON.stringify({ action, payload: payload || {}, token: S.token }),
+    }).then(r => r.json()).catch(() => { throw offlineError(); });
+  }
+  return new Promise((resolve, reject) => {
+    google.script.run.withSuccessHandler(resolve).withFailureHandler(() => reject(offlineError()))
+      .api(action, payload || {}, S.token);
+  });
+}
+
+function call(action, payload) {
+  return send(action, payload).then(r => {
+    setOffline(false);
+    if (r && r.ok) return r.data;
+    const msg = (r && r.error) || 'Sin respuesta del servidor.';
+    if (/sesión expiró/i.test(msg)) {
+      setSession(null);
+      closeModal();
+      S.returnTo = currentRoute().join('/');
+      setTimeout(() => go('entrar'), 0);
+    }
+    throw new Error(msg);
+  }, e => { if (e.offline) setOffline(true); throw e; });
+}
+
+// Consultas de solo lectura: si no hay señal se usa la última respuesta guardada en el celular.
+const saved = {
+  get(k) { try { return JSON.parse(store.get(k) || 'null'); } catch (e) { return null; } },
+  set(k, v) { try { store.set(k, JSON.stringify({ t: Date.now(), v })); } catch (e) { return; } },
+};
+async function cachedCall(action, payload, key) {
+  try {
+    const data = await call(action, payload);
+    saved.set(key, data);
+    return data;
+  } catch (e) {
+    const hit = e.offline && saved.get(key);
+    if (!hit) throw e;
+    setOffline(true, hit.t);
+    return hit.v;
+  }
+}
+
+// Aviso discreto bajo el menú mientras no hay conexión.
+function setOffline(on, since) {
+  const bar = $('#offline');
+  if (!bar) return;
+  if (on) {
+    const t = since ? new Date(since) : null;
+    bar.textContent = 'Sin conexión' + (t ? ' · información guardada el ' + t.toLocaleDateString('es-MX', { day: 'numeric', month: 'short' }) +
+      ' a las ' + t.toLocaleTimeString('es-MX', { hour: 'numeric', minute: '2-digit' }) : '') + ' · se actualiza sola al volver la señal';
+  }
+  bar.hidden = !on;
+}
+
+function toast(msg, isError) {
+  const t = $('#toast');
+  t.textContent = msg;
+  t.className = 'toast show' + (isError ? ' err' : '');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => { t.className = 'toast'; }, 3800);
+}
+
+function openModal(title, html) {
+  $('#modalTitle').textContent = title;
+  $('#modalBody').innerHTML = html;
+  $('#modal').hidden = false;
+  const first = $('#modalBody input, #modalBody select, #modalBody textarea, #modalBody button');
+  if (first) first.focus();
+  return $('#modalBody');
+}
+function closeModal() { $('#modal').hidden = true; $('#modalBody').innerHTML = ''; }
+
+// Ejecuta una acción deshabilitando el botón y mostrando errores.
+async function busy(btn, fn) {
+  const label = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.innerHTML = 'Procesando…'; }
+  try { return await fn(); } catch (e) { toast(e.message, true); throw e; } finally {
+    if (btn && btn.isConnected) { btn.disabled = false; btn.innerHTML = label; }
+  }
+}
+
+function readFile(input, maxMb) {
+  const f = input && input.files && input.files[0];
+  if (!f) return Promise.resolve(null);
+  if (f.size > (maxMb || 5) * 1024 * 1024) return Promise.reject(new Error('El archivo pesa más de ' + (maxMb || 5) + ' MB.'));
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve({ name: f.name, mime: f.type, data: String(r.result).split(',')[1] });
+    r.onerror = () => reject(new Error('No se pudo leer el archivo.'));
+    r.readAsDataURL(f);
+  });
+}
+
+function formData(form) {
+  const o = {};
+  $$('[name]', form).forEach(el => {
+    if (el.dataset.multi !== undefined) {
+      // Varias casillas con el mismo nombre → lista separada por comas.
+      if (!(el.name in o)) o[el.name] = '';
+      if (el.checked) o[el.name] = o[el.name] ? o[el.name] + ',' + el.value : el.value;
+      return;
+    }
+    o[el.name] = el.type === 'checkbox' ? el.checked : el.value;
+  });
+  return o;
+}
+
+function setSession(session) {
+  // Al salir se borra lo guardado de esa cuenta en el celular.
+  if (!session && S.user) store.set('yc_dash_' + S.user.id, null);
+  S.token = session ? session.token : null;
+  S.user = session ? session.user : null;
+  store.set('yc_token', S.token);
+  store.set('yc_user', S.user ? JSON.stringify(S.user) : null);
+  renderNav();
+}
+
+const cfg = () => (S.data && S.data.config) || {};
+const byId = (list, id) => (list || []).find(x => x.id === id) || {};
+const clase = id => byId(S.data.clases, id);
+const instructor = id => byId(S.data.instructores, id);
+const initials = name => String(name || '?').split(/\s+/).slice(0, 2).map(w => w[0]).join('').toUpperCase();
+// Las URL completas van siempre entre comillas simples: dentro de una plantilla con acento
+// grave, Apps Script toma la doble barra como comentario y corta el resto de la línea.
+const waLink = text => cfg().whatsapp ? 'https://wa.me/' + cfg().whatsapp.replace(/\D/g, '') + '?text=' + encodeURIComponent(text || 'Hola, quiero información de las clases') : '';
+const waPhoneLink = tel => { const d = String(tel || '').replace(/\D/g, ''); return 'https://wa.me/' + (d.length === 10 ? '52' : '') + d; };
+const mapsSearchLink = (dir, ciudad) => 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent((dir || '') + ', ' + (ciudad || ''));
+const freePackage = () => (S.data.paquetes || []).find(p => p.precio === 0);
+
+// Páginas donde se puede poner galería o música (mismas claves que PAGES en Code.gs).
+const PAGE_LABELS = [['inicio', 'Inicio'], ['horarios', 'Horarios'], ['paquetes', 'Paquetes'], ['instructores', 'Instructoras'],
+  ['videos', 'Videoteca'], ['panel', 'Mi cuenta (alumno)'], ['instructor', 'Mis clases (instructora)']];
+const pageLabel = k => (PAGE_LABELS.find(p => p[0] === k) || [k, k])[1];
+const DESIGN_USES = [['fondo', 'Fondo de la página (detrás del título)'], ['ancho', 'Imagen a todo lo ancho (debajo del contenido)']];
+const routeKey = name => (name === '' ? 'inicio' : PAGE_LABELS.some(p => p[0] === name) ? name : null);
+
+// Colores de Administrar → Sitio sobre las variables de Styles.
+const THEME = { colorPrimario: '--brand', colorAcento: '--accent', colorTitulos: '--heading', colorTexto: '--ink',
+  colorFondo: '--bg', colorSuave: '--soft', colorBordes: '--line' };
+const BRAND_COLORS = { colorPrimario: '#669C35', colorAcento: '#00F0B5', colorTitulos: '#444142', colorTexto: '#4A5565',
+  colorFondo: '#FCFCFC', colorSuave: '#DEE9D5', colorBordes: '#E5E7EB' };
+function applyTheme(c) {
+  const root = document.documentElement.style;
+  Object.keys(THEME).forEach(k => {
+    if (/^#[0-9a-f]{6}$/i.test(c[k] || '')) root.setProperty(THEME[k], c[k]);
+    else root.removeProperty(THEME[k]);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Imágenes del diseño: fondo detrás del título de la página o imagen a todo lo ancho.
+// Son decorativas: no se abren al tocarlas (solo las fotos de instructoras se amplían).
+
+const designImages = (key, uso) => (key ? (S.data.galeria || []).filter(g => g.pagina === key && (g.uso || 'fondo') === uso) : []);
+const pageBackground = key => (designImages(key, 'fondo')[0] || {}).imagen || '';
+
+function renderDesign(key) {
+  // En Inicio el fondo va en la portada (pageHome); en las demás, detrás del título.
+  const bg = key && key !== 'inicio' ? pageBackground(key) : '';
+  const layer = $('#pageBg');
+  layer.hidden = !bg;
+  layer.style.backgroundImage = bg ? `url("${bg.replace(/"/g, '%22')}")` : '';
+  const wide = designImages(key, 'ancho');
+  $('#gallery').innerHTML = wide.length ? wide.map(g => `<div class="design-wide">
+    <img src="${esc(g.imagen)}" alt="${esc(g.titulo || '')}" loading="lazy"></div>`).join('') : '';
+}
+
+// ---------------------------------------------------------------------------
+// Música de fondo: el navegador no permite que suene sola; la persona toca ▶.
+
+// hidden: la persona cerró el reproductor; vuelve a aparecer al recargar la página.
+const P = { tracks: [], i: 0, hidden: false };
+
+function updatePlayer(key) {
+  const audio = $('#plAudio');
+  const tracks = key ? (S.data.musica || []).filter(m => String(m.paginas).split(',').indexOf(key) >= 0) : [];
+  P.tracks = tracks;
+  const keep = tracks.findIndex(t => t.id === audio.dataset.track);
+  if (keep >= 0) {
+    P.i = keep; // la misma canción sigue sonando al cambiar a otra página que la tiene
+  } else {
+    const wasPlaying = !audio.paused;
+    P.i = 0;
+    if (!tracks.length) { audio.pause(); audio.removeAttribute('src'); delete audio.dataset.track; }
+    else { audio.src = tracks[0].audio; audio.dataset.track = tracks[0].id; if (wasPlaying) audio.play().catch(() => {}); }
+  }
+  $('#player').hidden = !tracks.length || P.hidden;
+  $('#plNext').hidden = tracks.length < 2;
+  if (tracks.length) $('#plTitle').textContent = tracks[P.i].titulo || 'Música';
+}
+
+function playerSync() {
+  const playing = !$('#plAudio').paused;
+  $('#plPlay').textContent = playing ? '❚❚' : '▶';
+  $('#plPlay').setAttribute('aria-label', playing ? 'Pausar música' : 'Reproducir música');
+  $('#player').classList.toggle('playing', playing);
+}
+
+function initPlayer() {
+  const audio = $('#plAudio');
+  const next = () => {
+    if (!P.tracks.length) return;
+    P.i = (P.i + 1) % P.tracks.length;
+    audio.src = P.tracks[P.i].audio;
+    audio.dataset.track = P.tracks[P.i].id;
+    $('#plTitle').textContent = P.tracks[P.i].titulo || 'Música';
+    audio.play().catch(() => {});
+  };
+  $('#plPlay').addEventListener('click', () => {
+    if (audio.paused) audio.play().catch(() => toast('No se pudo reproducir el audio.', true)); else audio.pause();
+  });
+  $('#plNext').addEventListener('click', next);
+  $('#plClose').addEventListener('click', () => { audio.pause(); P.hidden = true; $('#player').hidden = true; });
+  audio.addEventListener('ended', () => { if (P.tracks.length > 1) next(); else audio.play().catch(() => {}); });
+  ['play', 'pause'].forEach(ev => audio.addEventListener(ev, playerSync));
+}
+
+// ---------------------------------------------------------------------------
+// Navegación
+
+const ROUTES = {
+  '': pageHome,
+  horarios: pageSchedule,
+  paquetes: pagePackages,
+  instructores: pageInstructors,
+  videos: pageVideos,
+  terminos: pageTerms,
+  entrar: () => pageAuth('login'),
+  registro: () => pageAuth('register'),
+  panel: pageMember,
+  instructor: pageInstructor,
+  admin: pageAdmin,
+};
+
+function go(path) { location.hash = '#/' + path; }
+function currentRoute() { return location.hash.replace(/^#\/?/, '').split('/'); }
+
+async function render() {
+  const [name, sub] = currentRoute();
+  const page = ROUTES[name] || pageHome;
+  $('#nav').classList.remove('open');
+  $('#menuBtn').setAttribute('aria-expanded', 'false');
+  $$('#nav a').forEach(a => a.classList.toggle('active', a.getAttribute('href') === '#/' + name));
+  const app = $('#app');
+  const key = ROUTES[name] ? routeKey(name) : 'inicio';
+  renderDesign(key);
+  updatePlayer(key);
+  try {
+    await page(app, sub);
+  } catch (e) {
+    app.innerHTML = '<div class="wrap section center"><h2>Algo salió mal</h2><p class="muted">' + esc(e.message) + '</p><a class="btn btn-ghost" href="#/">Volver al inicio</a></div>';
+  }
+  window.scrollTo(0, 0);
+}
+
+function renderNav() {
+  const u = S.user;
+  const install = canInstall() ? '<a href="#" class="nav-install" data-install-open>📲 Instalar app</a>' : '';
+  $('#navAuth').innerHTML = install + (!u
+    ? '<a href="#/entrar">Iniciar sesión</a><a class="btn btn-primary btn-sm" href="#/registro">Crear cuenta</a>'
+    : (u.rol === 'admin' ? '<a href="#/admin">Administrar</a>' : '') + (u.rol === 'instructor' ? '<a href="#/instructor">Mis clases</a>' : '')
+      + '<a class="btn btn-primary btn-sm" href="#/panel">Mi cuenta</a>');
+}
+
+function renderChrome() {
+  const c = cfg();
+  applyTheme(c);
+  $('#brandName').textContent = c.nombre || 'yogacentral';
+  document.title = c.nombre || 'yogacentral';
+  const wa = waLink();
+  $('#waFloat').hidden = !wa;
+  if (wa) $('#waFloat').href = wa;
+  const year = todayMx().slice(0, 4);
+  $('#footer').innerHTML = `
+    <div class="wrap">
+      <div class="grid">
+        <div><div class="brand" style="margin-bottom:8px">${esc(c.nombre)}</div><p class="muted">${esc(c.lema)}</p></div>
+        <div><b>Visítanos</b><p class="muted">${esc(c.direccion)}<br>${esc(c.ciudad)}</p></div>
+        <div><b>Contacto</b><p>
+          ${c.telefono ? `<a href="tel:${esc(c.telefono.replace(/\s/g, ''))}">${esc(c.telefono)}</a><br>` : ''}
+          ${c.email ? `<a href="mailto:${esc(c.email)}">${esc(c.email)}</a><br>` : ''}
+          ${wa ? `<a href="${esc(wa)}" target="_blank" rel="noopener">WhatsApp</a>` : ''}</p></div>
+        <div><b>Síguenos</b><p>
+          ${c.instagram ? `<a href="${esc(c.instagram)}" target="_blank" rel="noopener">Instagram</a><br>` : ''}
+          ${c.facebook ? `<a href="${esc(c.facebook)}" target="_blank" rel="noopener">Facebook</a><br>` : ''}
+          <a href="#/terminos">Términos y privacidad</a></p></div>
+      </div>
+      <p class="muted small center" style="margin-top:24px">© ${year} ${esc(c.nombre)}</p>
+    </div>`;
+}
+
+// ---------------------------------------------------------------------------
+// Horario: utilidades compartidas
+
+// Clases del horario semanal para una fecha concreta.
+function slotsOn(ymd) {
+  const d = weekday(ymd);
+  return S.data.horario.filter(s => s.dia === d).sort((a, b) => a.hora < b.hora ? -1 : 1);
+}
+
+function nextSlots(count) {
+  const out = [];
+  const now = nowMx();
+  for (let i = 0; i < 14 && out.length < count; i++) {
+    const day = addDays(todayMx(), i);
+    slotsOn(day).forEach(s => { if (day + ' ' + s.hora > now && out.length < count) out.push({ slot: s, fecha: day }); });
+  }
+  return out;
+}
+
+async function loadOccupancy(desde, hasta) {
+  // Si falla, el horario se muestra sin cupos.
+  try { Object.assign(S.occ, await call('public.occupancy', { desde, hasta })); } catch (e) { return; }
+}
+
+function slotHtml(s, fecha, opts) {
+  const c = clase(s.claseId);
+  const ins = instructor(s.instructorId);
+  const past = fecha + ' ' + s.hora <= nowMx();
+  const taken = S.occ[s.id + '|' + fecha] || 0;
+  const free = s.cupo > 0 ? Math.max(0, s.cupo - taken) : null;
+  const action = past ? '<span class="muted small">Terminó</span>'
+    : free === 0 ? '<span class="tag tag-bad">Lleno</span>'
+    : `<button class="btn btn-primary btn-sm" data-book="${esc(s.id)}" data-date="${fecha}">Reservar</button>`;
+  return `<div class="slot ${past ? 'past' : ''}">
+    <div class="time">${fmtTime(s.hora)}</div>
+    <div><b>${esc(c.nombre || 'Clase')}</b>
+      <div class="meta">${esc(ins.nombre || '')} · ${s.duracion} min · ${esc(s.sala)}${s.modalidad === 'en línea' ? ' · en línea' : ''}
+      ${opts && opts.withDate ? ' · ' + fmtDate(fecha, true) : ''}
+      ${free !== null && !past ? ` · <span class="${free <= 3 ? 'tag tag-warn' : ''}">${free} lugar${free === 1 ? '' : 'es'}</span>` : ''}</div></div>
+    <div class="act">${action}</div></div>`;
+}
+
+function bindBooking(root, after) {
+  $$('[data-book]', root).forEach(btn => btn.addEventListener('click', () => bookFlow(btn.dataset.book, btn.dataset.date, after)));
+}
+
+function bookFlow(horarioId, fecha, after) {
+  if (!S.user) {
+    S.returnTo = 'horarios';
+    toast('Inicia sesión o crea tu cuenta para reservar.');
+    return go('entrar');
+  }
+  const s = byId(S.data.horario, horarioId);
+  const c = clase(s.claseId);
+  const body = openModal('Confirmar reserva', `
+    <p><b>${esc(c.nombre)}</b> con ${esc(instructor(s.instructorId).nombre)}<br>
+    <span class="muted">${fmtDate(fecha, true)} · ${fmtTime(s.hora)} · ${s.duracion} min</span></p>
+    <p class="small muted">Puedes cancelar hasta ${esc(cfg().horasCancelacion || 2)} h antes y recuperas la clase.</p>
+    <div class="row"><button class="btn btn-primary" id="okBook">Reservar mi lugar</button>
+    <button class="btn btn-ghost" data-close>Cancelar</button></div>`);
+  $('#okBook', body).addEventListener('click', e => busy(e.target, async () => {
+    try {
+      await call('me.book', { horarioId, fecha });
+    } catch (err) {
+      if (/paquete vigente/.test(err.message)) {
+        openModal('Necesitas un paquete', `<p>${esc(err.message)}</p>
+          <div class="row"><a class="btn btn-primary" href="#/paquetes" data-close>Ver paquetes</a></div>`);
+        return;
+      }
+      throw err;
+    }
+    closeModal();
+    toast('¡Listo! Tu lugar está reservado.');
+    S.occ[horarioId + '|' + fecha] = (S.occ[horarioId + '|' + fecha] || 0) + 1;
+    if (after) after();
+  }).catch(() => {}));
+}
+
+// ---------------------------------------------------------------------------
+// Páginas públicas
+
+function pageHome(app) {
+  const c = cfg();
+  const free = freePackage();
+  const featured = S.data.paquetes.filter(p => p.destacado && p.precio > 0);
+  const upcoming = nextSlots(4);
+  // Un fondo de "Imágenes del diseño" para Inicio tiene prioridad sobre la imagen de portada de Sitio.
+  const heroImg = pageBackground('inicio') || c.heroImagen;
+  app.innerHTML = `
+  <section class="hero ${heroImg ? 'has-img' : ''}" ${heroImg ? `style="background-image:url('${esc(heroImg)}')"` : ''}>
+    <div class="wrap"><div class="hero-in">
+      <div class="eyebrow">${esc(c.lema)}</div>
+      <h1>Yoga, meditación y sonoterapia en ${esc((c.ciudad || '').split(',')[0] || 'tu ciudad')}</h1>
+      <p class="lead muted">${esc(c.descripcion)}</p>
+      <div class="row">
+        ${free ? `<button class="btn btn-accent" id="heroFree">Tu primera clase es gratis</button>` : ''}
+        <a class="btn btn-primary" href="#/horarios">Ver horarios</a>
+        ${waLink() ? `<a class="btn btn-ghost" href="${esc(waLink())}" target="_blank" rel="noopener">Escríbenos</a>` : ''}
+      </div>
+      <div class="stat-strip">
+        <div><b>${S.data.clases.length}</b><span class="muted small">estilos de práctica</span></div>
+        <div><b>${S.data.instructores.length}</b><span class="muted small">instructoras certificadas</span></div>
+        <div><b>${S.data.horario.length}</b><span class="muted small">clases por semana</span></div>
+      </div>
+    </div></div>
+  </section>
+
+  <section class="section"><div class="wrap">
+    <div class="row"><h2>Próximas clases</h2><span class="spacer"></span><a href="#/horarios">Horario completo →</a></div>
+    <div id="upcoming">${upcoming.length ? upcoming.map(x => slotHtml(x.slot, x.fecha, { withDate: true })).join('') : '<p class="muted">Pronto publicaremos nuevos horarios.</p>'}</div>
+  </div></section>
+
+  <section class="section section-soft"><div class="wrap">
+    <h2>Un lugar para cuidarte</h2>
+    <div class="grid grid-2" style="margin-top:20px">
+      ${[['🧘', 'Yoga para cada cuerpo', 'Desde clases restaurativas y suaves hasta Power y Vinyasa. Cada clase indica nivel e intensidad.'],
+         ['🌙', 'Meditación y descanso', 'Prácticas de atención plena para bajar el estrés y dormir mejor.'],
+         ['🔔', 'Sonoterapia', 'Baños de sonido con cuencos para relajar cuerpo y mente.'],
+         ['🤝', 'Comunidad', 'Grupos pequeños y un trato cercano: aquí te conocemos por tu nombre.']]
+        .map(f => `<div class="feature"><div class="ico">${f[0]}</div><div><h3>${f[1]}</h3><p class="muted">${f[2]}</p></div></div>`).join('')}
+    </div>
+  </div></section>
+
+  ${featured.length ? `<section class="section"><div class="wrap">
+    <div class="row"><h2>Paquetes</h2><span class="spacer"></span><a href="#/paquetes">Ver todos →</a></div>
+    <div class="grid grid-3" style="margin-top:16px">${featured.concat(free ? [free] : []).map(pkgCard).join('')}</div>
+  </div></section>` : ''}
+
+  <section class="section section-soft"><div class="wrap">
+    <div class="row"><h2>Instructoras</h2><span class="spacer"></span><a href="#/instructores">Conócelas →</a></div>
+    <div class="grid grid-4" style="margin-top:16px">${S.data.instructores.slice(0, 4).map(personCard).join('')}</div>
+  </div></section>
+
+  <section class="section"><div class="wrap grid grid-2">
+    <div><h2>Visítanos</h2><p>${esc(c.direccion)}<br>${esc(c.ciudad)}</p>
+      <div class="row">
+        <a class="btn btn-ghost" target="_blank" rel="noopener" href="${esc(mapsSearchLink(c.direccion, c.ciudad))}">Cómo llegar</a>
+        ${c.telefono ? `<a class="btn btn-ghost" href="tel:${esc(c.telefono.replace(/\s/g, ''))}">Llamar</a>` : ''}
+      </div></div>
+    <iframe class="map" loading="lazy" title="Mapa" src="${esc(c.mapa || 'https://www.google.com/maps?q=' + encodeURIComponent((c.direccion || '') + ', ' + (c.ciudad || '')) + '&output=embed')}"></iframe>
+  </div></section>`;
+  bindBooking(app, () => render());
+  bindPackages(app);
+  bindPeople(app);
+  if ($('#heroFree')) $('#heroFree').addEventListener('click', () => buyFlow(free.id));
+  if (upcoming.length) loadOccupancy(upcoming[0].fecha, upcoming[upcoming.length - 1].fecha).then(() => {
+    const box = $('#upcoming');
+    if (box) { box.innerHTML = upcoming.map(x => slotHtml(x.slot, x.fecha, { withDate: true })).join(''); bindBooking(box, () => render()); }
+  });
+}
+
+async function pageSchedule(app) {
+  if (!S.weekStart) S.weekStart = mondayOf(todayMx());
+  const start = S.weekStart;
+  const end = addDays(start, 6);
+  const draw = () => {
+    const days = [0, 1, 2, 3, 4, 5, 6].map(i => addDays(start, i));
+    const used = Array.from(new Set(S.data.horario.map(s => s.claseId)));
+    const blocks = days.map(d => {
+      const slots = slotsOn(d).filter(s => !S.classFilter || s.claseId === S.classFilter);
+      if (!slots.length) return '';
+      return `<div class="day-block"><div class="day-head ${d === todayMx() ? 'today' : ''}">${DAYS[weekday(d)]} <span class="muted small">${fmtDate(d)}</span>${d === todayMx() ? ' <span class="tag">Hoy</span>' : ''}</div>
+        ${slots.map(s => slotHtml(s, d)).join('')}</div>`;
+    }).join('');
+    app.innerHTML = `<div class="wrap section">
+      <h1>Horarios</h1>
+      <p class="muted">Horario de ${esc(cfg().ciudad || 'Ciudad de México')} (hora del centro de México). Reserva tu lugar en línea.</p>
+      <div class="week-nav">
+        <button class="btn btn-ghost btn-sm" id="prevW" ${start <= mondayOf(todayMx()) ? 'disabled' : ''}>← Anterior</button>
+        <b>${fmtDate(start)} – ${fmtDate(end)}</b>
+        <button class="btn btn-ghost btn-sm" id="nextW">Siguiente →</button>
+        ${start !== mondayOf(todayMx()) ? '<button class="btn btn-ghost btn-sm" id="thisW">Esta semana</button>' : ''}
+      </div>
+      <div class="chips"><button class="chip ${!S.classFilter ? 'on' : ''}" data-f="">Todas</button>
+        ${used.map(id => `<button class="chip ${S.classFilter === id ? 'on' : ''}" data-f="${esc(id)}">${esc(clase(id).nombre)}</button>`).join('')}</div>
+      ${blocks || '<div class="empty">No hay clases esta semana con ese filtro.</div>'}
+      <h2 style="margin-top:48px">Estilos de clase</h2>
+      <div class="grid grid-2">${S.data.clases.map(c => `<div class="card"><h3>${esc(c.nombre)}</h3>
+        <div class="row" style="margin-bottom:10px"><span class="tag">${esc(c.nivel)}</span><span class="tag tag-accent">Intensidad ${esc(String(c.intensidad).toLowerCase())}</span></div>
+        <p class="muted">${esc(c.descripcion)}</p></div>`).join('')}</div>
+    </div>`;
+    $('#prevW').addEventListener('click', () => { S.weekStart = addDays(start, -7); render(); });
+    $('#nextW').addEventListener('click', () => { S.weekStart = addDays(start, 7); render(); });
+    if ($('#thisW')) $('#thisW').addEventListener('click', () => { S.weekStart = mondayOf(todayMx()); render(); });
+    $$('[data-f]', app).forEach(b => b.addEventListener('click', () => { S.classFilter = b.dataset.f; draw(); }));
+    bindBooking(app, draw);
+  };
+  draw();
+  await loadOccupancy(start, end);
+  if (currentRoute()[0] === 'horarios') draw();
+}
+
+function pkgCard(p) {
+  const perClass = p.clases > 0 && p.precio > 0 ? money(p.precio / p.clases) + ' por clase' : p.clases === 0 ? 'Clases ilimitadas' : '';
+  return `<div class="card pkg ${p.destacado ? 'featured' : ''}">
+    ${p.destacado ? `<div style="margin-bottom:8px"><span class="tag tag-accent">${p.precio === 0 ? 'Para empezar' : 'Recomendado'}</span></div>` : ''}
+    <h3>${esc(p.nombre)}</h3>
+    <div class="price">${p.precio === 0 ? 'Gratis' : money(p.precio)}</div>
+    <p class="muted small">${esc(perClass)}</p>
+    <ul><li>${p.clases === 0 ? 'Todas las clases' : p.clases + ' clase' + (p.clases > 1 ? 's' : '')}</li>
+      <li>Vigencia de ${p.vigenciaDias} días</li>${p.soloNuevos ? '<li>Solo primera visita</li>' : ''}</ul>
+    <p class="muted">${esc(p.descripcion)}</p>
+    <button class="btn ${p.destacado ? 'btn-primary' : 'btn-ghost'} btn-block" data-buy="${esc(p.id)}">${p.precio === 0 ? 'Quiero mi clase gratis' : 'Comprar'}</button>
+  </div>`;
+}
+function bindPackages(root) { $$('[data-buy]', root).forEach(b => b.addEventListener('click', () => buyFlow(b.dataset.buy))); }
+
+function pagePackages(app) {
+  app.innerHTML = `<div class="wrap section">
+    <h1>Paquetes</h1>
+    <p class="muted">La vigencia empieza cuando validamos tu pago. Todas las clases del horario están incluidas.</p>
+    <div class="grid grid-3" style="margin-top:24px">${S.data.paquetes.map(pkgCard).join('')}</div>
+    <div class="card" style="margin-top:32px"><h3>¿Cómo pago?</h3>${payBox()}
+    ${waLink() ? `<p style="margin-top:14px"><a class="btn btn-ghost" href="${esc(waLink('Hola, tengo una duda sobre los paquetes'))}" target="_blank" rel="noopener">Tengo una duda</a></p>` : ''}</div>
+  </div>`;
+  bindPackages(app);
+  bindCopy(app);
+}
+
+function buyFlow(paqueteId) {
+  const p = byId(S.data.paquetes, paqueteId);
+  if (!S.user) {
+    S.returnTo = 'paquetes';
+    toast('Crea tu cuenta para continuar.');
+    return go('registro');
+  }
+  if (p.precio === 0) {
+    const body = openModal(p.nombre, `<p>${esc(p.descripcion)}</p><p class="muted small">Se activa al momento. Después reserva tu clase en el horario.</p>
+      <button class="btn btn-primary" id="okFree">Activar mi clase gratis</button>`);
+    $('#okFree', body).addEventListener('click', e => busy(e.target, async () => {
+      await call('me.buy', { paqueteId });
+      closeModal(); toast('¡Bienvenida! Ya puedes reservar tu clase.'); go('horarios');
+    }).catch(() => {}));
+    return;
+  }
+  const c = cfg();
+  const body = openModal('Comprar ' + p.nombre, `
+    <div class="price">${money(p.precio)}</div>
+    <p class="muted small">${p.clases === 0 ? 'Clases ilimitadas' : p.clases + ' clases'} · vigencia ${p.vigenciaDias} días</p>
+    <div class="card" style="background:var(--soft);box-shadow:none"><b>Datos para pagar</b>${payBox()}</div>
+    <form id="buyForm" style="margin-top:16px">
+      <label><span>Comprobante de pago (foto o PDF, máx. 5 MB)</span><input type="file" name="archivo" accept="${ACCEPT.comprobante}"></label>
+      <p class="muted small" style="margin-top:-8px">Si aún no pagas puedes subirlo después desde “Mi cuenta”.</p>
+      <label><span>Nota (opcional)</span><input name="nota" maxlength="300" placeholder="Ej. pagué desde la cuenta de mi pareja"></label>
+      <button class="btn btn-primary btn-block" type="submit">Enviar solicitud</button>
+    </form>`);
+  $('#buyForm', body).addEventListener('submit', e => {
+    e.preventDefault();
+    const btn = $('button[type=submit]', e.target);
+    busy(btn, async () => {
+      const archivo = await readFile($('input[type=file]', e.target));
+      await call('me.buy', { paqueteId, nota: $('input[name=nota]', e.target).value, archivo });
+      closeModal();
+      toast(archivo ? 'Recibimos tu comprobante. Te avisaremos al validarlo.' : 'Solicitud creada. Sube tu comprobante desde “Mi cuenta”.');
+      go('panel/compras');
+    }).catch(() => {});
+  });
+  bindCopy(body);
+}
+
+// Datos bancarios del estudio (Administrar → Sitio) con botón para copiar.
+function payBox() {
+  const c = cfg();
+  const rows = [['Banco', c.pagoBanco], ['Titular', c.pagoTitular], ['CLABE', c.pagoClabe, true], ['Tarjeta', c.pagoTarjeta, true]]
+    .filter(r => r[1]);
+  const table = rows.length ? `<dl class="paydata">${rows.map(r => `<dt>${r[0]}</dt><dd><span class="mono">${esc(r[1])}</span>${r[2]
+    ? ` <button type="button" class="btn btn-ghost btn-sm" data-copy="${esc(String(r[1]).replace(/[\s-]/g, ''))}">Copiar</button>` : ''}</dd>`).join('')}</dl>` : '';
+  const link = c.linkPago ? `<p style="margin:12px 0 0"><a class="btn btn-accent" href="${esc(c.linkPago)}" target="_blank" rel="noopener">Pagar en línea</a></p>` : '';
+  const notes = c.datosPago ? `<p class="small muted" style="white-space:pre-line;margin:10px 0 0">${esc(c.datosPago)}</p>` : '';
+  return table + link + notes || '<p class="small muted" style="margin:6px 0 0">Pronto publicaremos los datos de pago. Mientras, escríbenos por WhatsApp.</p>';
+}
+
+function bindCopy(root) {
+  $$('[data-copy]', root).forEach(b => b.addEventListener('click', async () => {
+    const text = b.dataset.copy;
+    let ok = false;
+    try { await navigator.clipboard.writeText(text); ok = true; } catch (e) {
+      // El marco de Apps Script puede bloquear el portapapeles: se usa el método clásico.
+      const t = document.createElement('textarea');
+      t.value = text; t.style.position = 'fixed'; t.style.opacity = '0';
+      document.body.appendChild(t); t.select();
+      try { ok = document.execCommand('copy'); } catch (e2) { ok = false; }
+      t.remove();
+    }
+    toast(ok ? 'Copiado: ' + text : 'Mantén presionado el número para copiarlo.', !ok);
+  }));
+}
+
+function personCard(p) {
+  return `<div class="card person" data-person="${esc(p.id)}" tabindex="0" role="button" aria-label="Ver perfil de ${esc(p.nombre)}">
+    ${p.foto ? `<img class="avatar" src="${esc(p.foto)}" alt="${esc(p.nombre)}" loading="lazy">` : `<div class="avatar" aria-hidden="true">${esc(initials(p.nombre))}</div>`}
+    <h3>${esc(p.nombre)}</h3><p class="muted small">${esc(p.titulo)}</p></div>`;
+}
+function bindPeople(root) {
+  $$('[data-person]', root).forEach(el => {
+    const open = () => {
+      const p = instructor(el.dataset.person);
+      const slots = S.data.horario.filter(s => s.instructorId === p.id).sort((a, b) => (a.dia - b.dia) || (a.hora < b.hora ? -1 : 1));
+      openModal(p.nombre, `${p.foto ? `<img class="person-photo" src="${esc(p.foto)}" alt="Foto de ${esc(p.nombre)}">` : ''}
+        <p class="muted">${esc(p.titulo)}</p><p style="white-space:pre-line">${esc(p.bio)}</p>
+        ${slots.length ? '<h3>Sus clases</h3>' + slots.map(s => `<div class="small">${DAYS[s.dia]} ${fmtTime(s.hora)} · ${esc(clase(s.claseId).nombre)}</div>`).join('') : ''}
+        <p style="margin-top:16px"><a class="btn btn-primary" href="#/horarios" data-close>Ver horario</a></p>`);
+    };
+    el.addEventListener('click', open);
+    el.addEventListener('keydown', e => { if (e.key === 'Enter') open(); });
+  });
+}
+
+function pageInstructors(app) {
+  app.innerHTML = `<div class="wrap section"><h1>Instructoras</h1>
+    <p class="muted">Conoce a quienes te acompañan en cada práctica.</p>
+    <div class="grid grid-3" style="margin-top:24px">${S.data.instructores.map(personCard).join('')}</div></div>`;
+  bindPeople(app);
+}
+
+function embedUrl(url) {
+  let m = String(url).match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/))([\w-]{11})/);
+  if (m) return 'https://www.youtube.com/embed/' + m[1];
+  m = String(url).match(/vimeo\.com\/(\d+)/);
+  if (m) return 'https://player.vimeo.com/video/' + m[1];
+  m = String(url).match(/drive\.google\.com\/file\/d\/([\w-]+)/);
+  if (m) return 'https://drive.google.com/file/d/' + m[1] + '/preview';
+  return '';
+}
+
+async function pageVideos(app) {
+  let videos = S.data.videos;
+  // Si falla, se queda con la lista pública.
+  if (S.user) { try { videos = await call('me.videos'); } catch (e) { videos = S.data.videos; } }
+  const byIdUrl = {};
+  videos.forEach(v => { byIdUrl[v.id] = v.url; });
+  const all = S.data.videos.map(v => Object.assign({}, v, { url: byIdUrl[v.id] || '' }));
+  app.innerHTML = `<div class="wrap section"><h1>Videoteca</h1>
+    <p class="muted">Practica desde casa. Los videos marcados para miembros requieren un paquete vigente.</p>
+    ${all.length ? `<div class="grid grid-2" style="margin-top:24px">${all.map(v => {
+      const src = v.url && embedUrl(v.url);
+      return `<div class="card">${src ? `<div class="video-frame"><iframe src="${esc(src)}" title="${esc(v.titulo)}" loading="lazy" allowfullscreen></iframe></div>`
+        : v.url ? `<p><a class="btn btn-ghost" href="${esc(v.url)}" target="_blank" rel="noopener">Abrir video</a></p>`
+        : `<div class="video-frame" style="display:grid;place-items:center;color:#fff">🔒 Solo miembros</div>`}
+        <h3>${esc(v.titulo)}</h3><p class="muted small">${esc(v.descripcion)}</p></div>`;
+    }).join('')}</div>` : '<div class="empty card" style="margin-top:24px">Muy pronto subiremos prácticas para hacer en casa.</div>'}
+    ${!S.user && all.some(v => v.acceso !== 'publico') ? '<p style="margin-top:24px"><a class="btn btn-primary" href="#/entrar">Inicia sesión para ver todo</a></p>' : ''}
+  </div>`;
+}
+
+function pageTerms(app) {
+  const items = String(cfg().terminos || '').split('\n').filter(Boolean);
+  app.innerHTML = `<div class="wrap section terms" style="max-width:760px"><h1>Términos y privacidad</h1>
+    ${items.map((t, i) => `<p><b>${i + 1}.</b> ${esc(t)}</p>`).join('') || '<p class="muted">Sin términos publicados.</p>'}</div>`;
+}
+
+function pageAuth(mode, app) {
+  app = app || $('#app');
+  if (S.user) return go(homeFor(S.user));
+  const reg = mode === 'register';
+  app.innerHTML = `<div class="wrap"><div class="card auth-card">
+    <h2>${reg ? 'Crea tu cuenta' : 'Bienvenida de nuevo'}</h2>
+    <p class="muted">${reg ? 'Reserva clases, compra paquetes y consulta tu saldo.' : 'Entra para reservar y ver tus paquetes.'}</p>
+    <form id="authForm">
+      ${reg ? '<label><span>Nombre completo</span><input name="nombre" required autocomplete="name"></label>' : ''}
+      <label><span>Correo</span><input name="email" type="email" required autocomplete="email"></label>
+      ${reg ? '<label><span>WhatsApp / teléfono</span><input name="telefono" type="tel" autocomplete="tel" placeholder="10 dígitos"></label>' : ''}
+      <label><span>Contraseña</span><input name="password" type="password" required minlength="${reg ? 8 : 1}" autocomplete="${reg ? 'new-password' : 'current-password'}"></label>
+      ${reg ? '<label class="check"><input type="checkbox" name="acepto" required> Acepto los <a href="#/terminos" target="_blank">términos</a></label>' : ''}
+      <button class="btn btn-primary btn-block" type="submit">${reg ? 'Crear cuenta' : 'Entrar'}</button>
+    </form>
+    <p class="center small" style="margin-top:16px">${reg ? '¿Ya tienes cuenta? <a href="#/entrar">Inicia sesión</a>' : '¿Primera vez? <a href="#/registro">Crea tu cuenta</a>'}</p>
+    ${!reg ? `<p class="center small muted">¿Olvidaste tu contraseña? ${waLink() ? `<a href="${esc(waLink('Hola, olvidé mi contraseña'))}" target="_blank" rel="noopener">Escríbenos</a>` : 'Contacta al estudio'} y la restablecemos.</p>` : ''}
+  </div></div>`;
+  $('#authForm').addEventListener('submit', e => {
+    e.preventDefault();
+    const btn = $('button[type=submit]', e.target);
+    busy(btn, async () => {
+      const session = await call(reg ? 'auth.register' : 'auth.login', formData(e.target));
+      setSession(session);
+      toast('Hola, ' + session.user.nombre.split(' ')[0] + '.');
+      const next = S.returnTo || homeFor(session.user);
+      S.returnTo = null;
+      go(next);
+    }).catch(() => {});
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Panel del alumno
+
+const homeFor = u => ({ admin: 'admin', instructor: 'instructor' }[u.rol] || 'panel');
+
+function stateTag(estado) {
+  const map = { aprobado: 'tag-ok', pendiente: 'tag-warn', rechazado: 'tag-bad', reservada: '', asistio: 'tag-ok', falta: 'tag-bad', cancelada: 'tag-bad' };
+  const label = { asistio: 'asistió' }[estado] || estado;
+  return `<span class="tag ${map[estado] || ''}">${esc(label)}</span>`;
+}
+
+async function pageMember(app, tab) {
+  if (!S.user) { S.returnTo = 'panel'; return go('entrar'); }
+  tab = tab || 'resumen';
+  app.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+  const d = await cachedCall('me.dashboard', {}, 'yc_dash_' + S.user.id);
+  S.user = d.user;
+  const now = nowMx();
+  const upcoming = d.reservas.filter(r => r.estado === 'reservada' && r.fecha >= todayMx())
+    .map(r => Object.assign(r, { slot: byId(S.data.horario, r.horarioId) }))
+    .sort((a, b) => (a.fecha + a.slot.hora) < (b.fecha + b.slot.hora) ? -1 : 1);
+  const unlimited = d.activos.some(c => c.clasesTotal === 0);
+  const left = d.activos.reduce((s, c) => s + (c.clasesTotal - c.clasesUsadas), 0);
+  const canCancel = r => r.estado === 'reservada' && r.slot && (r.fecha + ' ' + r.slot.hora) > now;
+  const resRow = r => {
+    const s = r.slot || byId(S.data.horario, r.horarioId);
+    return `<tr><td>${fmtDate(r.fecha, true)}</td><td>${fmtTime(s.hora)}</td><td>${esc(clase(s.claseId).nombre || '—')}</td>
+      <td>${stateTag(r.estado)}</td><td>${canCancel(Object.assign({ slot: s }, r)) ? `<button class="btn btn-danger btn-sm" data-cancel="${esc(r.id)}">Cancelar</button>` : ''}</td></tr>`;
+  };
+  const tabs = { resumen: 'Resumen', reservas: 'Mis reservas', compras: 'Mis paquetes', perfil: 'Perfil' };
+  let html = `<div class="wrap"><div class="panel-head"><h1>Hola, ${esc(d.user.nombre.split(' ')[0])}</h1></div>
+    <div class="tabs">${Object.keys(tabs).map(k => `<button class="${k === tab ? 'on' : ''}" data-tab="${k}">${tabs[k]}</button>`).join('')}</div>`;
+
+  if (tab === 'resumen') {
+    html += `<div class="grid grid-2">
+      <div class="balance"><span>Clases disponibles</span><b>${unlimited ? 'Ilimitadas' : left}</b>
+        <span>${d.activos.length ? 'Vigente hasta el ' + fmtDate(d.activos[d.activos.length - 1].vence) : 'Sin paquete vigente'}</span>
+        <div class="row" style="margin-top:16px"><a class="btn btn-ghost" style="background:#fff;color:#2b2a27!important" href="#/horarios">Reservar clase</a>
+        <a class="btn btn-ghost" style="border-color:rgba(255,255,255,.6);color:inherit!important" href="#/paquetes">Comprar paquete</a></div></div>
+      <div class="card"><h3>Próximas clases</h3>${upcoming.length ? upcoming.slice(0, 4).map(r => `<div class="row" style="padding:8px 0;border-bottom:1px solid var(--line)">
+        <div><b>${esc(clase(r.slot.claseId).nombre)}</b><div class="muted small">${fmtDate(r.fecha, true)} · ${fmtTime(r.slot.hora)}</div></div><span class="spacer"></span>
+        ${canCancel(r) ? `<button class="btn btn-danger btn-sm" data-cancel="${esc(r.id)}">Cancelar</button>` : ''}</div>`).join('') : '<p class="muted">No tienes clases reservadas.</p>'}</div>
+    </div>
+    ${d.compras.some(c => c.estado === 'pendiente') ? '<div class="card" style="margin-top:18px"><b>Tienes un pago en revisión.</b> <span class="muted">Lo validamos lo antes posible.</span> <a href="#/panel/compras">Ver detalle</a></div>' : ''}`;
+  } else if (tab === 'reservas') {
+    html += d.reservas.length ? `<div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Hora</th><th>Clase</th><th>Estado</th><th></th></tr></thead>
+      <tbody>${d.reservas.map(resRow).join('')}</tbody></table></div>` : '<div class="empty card">Aún no tienes reservas. <a href="#/horarios">Ver horario</a></div>';
+  } else if (tab === 'compras') {
+    html += d.compras.length ? `<div class="table-wrap"><table><thead><tr><th>Paquete</th><th>Precio</th><th>Estado</th><th>Clases</th><th>Vigencia</th><th>Comprobante</th></tr></thead>
+      <tbody>${d.compras.map(c => `<tr><td>${esc(c.paquete)}</td><td>${money(c.precio)}</td><td>${stateTag(c.estado)}${c.estado === 'rechazado' && c.nota ? `<div class="small muted">${esc(c.nota)}</div>` : ''}</td>
+        <td>${c.clasesTotal === 0 ? 'Ilimitadas' : c.clasesUsadas + ' / ' + c.clasesTotal}</td>
+        <td>${c.vence ? fmtDate(c.inicio) + ' – ' + fmtDate(c.vence) : '—'}</td>
+        <td>${c.estado === 'pendiente' ? (c.comprobante ? '<span class="tag">Enviado</span> ' : '') + `<button class="btn btn-ghost btn-sm" data-receipt="${esc(c.id)}">${c.comprobante ? 'Reemplazar' : 'Subir'}</button>` : (c.comprobante ? 'Enviado' : '—')}</td></tr>`).join('')}</tbody></table></div>`
+      : '<div class="empty card">Aún no tienes paquetes. <a href="#/paquetes">Ver paquetes</a></div>';
+  } else {
+    html += `<div class="grid grid-2">
+      <form class="card" id="profileForm"><h3>Mis datos</h3>
+        <label><span>Nombre</span><input name="nombre" value="${esc(d.user.nombre)}" required></label>
+        <label><span>Teléfono</span><input name="telefono" value="${esc(d.user.telefono)}"></label>
+        <label><span>Correo</span><input value="${esc(d.user.email)}" disabled></label>
+        <button class="btn btn-primary" type="submit">Guardar</button></form>
+      <form class="card" id="passForm"><h3>Cambiar contraseña</h3>
+        <label><span>Contraseña actual</span><input type="password" name="actual" required autocomplete="current-password"></label>
+        <label><span>Nueva contraseña</span><input type="password" name="nueva" minlength="8" required autocomplete="new-password"></label>
+        <button class="btn btn-primary" type="submit">Actualizar</button></form>
+    </div>
+    <p style="margin-top:24px"><button class="btn btn-ghost" id="logout">Cerrar sesión</button></p>`;
+  }
+  app.innerHTML = html + '</div>';
+
+  $$('[data-tab]', app).forEach(b => b.addEventListener('click', () => go('panel/' + b.dataset.tab)));
+  $$('[data-cancel]', app).forEach(b => b.addEventListener('click', () => {
+    if (!confirm('¿Cancelar esta reserva? Recuperarás la clase en tu paquete.')) return;
+    busy(b, async () => { await call('me.cancel', { reservaId: b.dataset.cancel }); toast('Reserva cancelada.'); S.occ = {}; render(); }).catch(() => {});
+  }));
+  $$('[data-receipt]', app).forEach(b => b.addEventListener('click', () => {
+    const body = openModal('Subir comprobante', `<form id="rcpt"><label><span>Foto o PDF (máx. 5 MB)</span><input type="file" accept="${ACCEPT.comprobante}" required></label>
+      <button class="btn btn-primary" type="submit">Enviar</button></form>`);
+    $('#rcpt', body).addEventListener('submit', e => {
+      e.preventDefault();
+      busy($('button', e.target), async () => {
+        const archivo = await readFile($('input', e.target));
+        await call('me.uploadReceipt', { compraId: b.dataset.receipt, archivo });
+        closeModal(); toast('Comprobante enviado.'); render();
+      }).catch(() => {});
+    });
+  }));
+  if ($('#profileForm')) {
+    $('#profileForm').addEventListener('submit', e => { e.preventDefault(); busy($('button', e.target), async () => { setSession({ token: S.token, user: await call('me.updateProfile', formData(e.target)) }); toast('Datos guardados.'); }).catch(() => {}); });
+    $('#passForm').addEventListener('submit', e => { e.preventDefault(); busy($('button', e.target), async () => { await call('me.changePassword', formData(e.target)); e.target.reset(); toast('Contraseña actualizada.'); }).catch(() => {}); });
+    $('#logout').addEventListener('click', async () => { await call('auth.logout').catch(() => null); setSession(null); go(''); });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Panel de la instructora: sus clases, inscritos y asistencia
+
+async function pageInstructor(app, fecha) {
+  if (!S.user) { S.returnTo = 'instructor'; return go('entrar'); }
+  if (S.user.rol !== 'instructor' && S.user.rol !== 'admin') return go('panel');
+  fecha = /^\d{4}-\d{2}-\d{2}$/.test(fecha || '') ? fecha : todayMx();
+  app.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+  const list = await cachedCall('instructor.classes', { fecha }, 'yc_ins_' + S.user.id + '_' + fecha);
+  const all = list.reduce((a, x) => a.concat(x.reservas), []);
+  const count = st => all.filter(r => r.estado === st).length;
+  const strip = [0, 1, 2, 3, 4, 5, 6].map(i => addDays(todayMx(), i));
+  app.innerHTML = `<div class="wrap">
+    <div class="panel-head"><h1>Mis clases</h1>
+      <p class="muted">${S.user.rol === 'admin' ? 'Vista de administrador: todas las clases.' : 'Revisa quién está inscrito y pasa lista al terminar.'}</p></div>
+    <div class="chips">${strip.map(d => `<button class="chip ${d === fecha ? 'on' : ''}" data-day="${d}">${d === todayMx() ? 'Hoy' : DAYS_SHORT[weekday(d)] + ' ' + Number(d.slice(8))}</button>`).join('')}</div>
+    <div class="week-nav"><button class="btn btn-ghost btn-sm" data-day="${addDays(fecha, -1)}">←</button>
+      <input type="date" id="insDate" value="${fecha}" style="width:auto"><button class="btn btn-ghost btn-sm" data-day="${addDays(fecha, 1)}">→</button>
+      <b>${fmtDate(fecha, true)}</b></div>
+    ${list.length ? `<div class="kpis">
+      <div class="kpi"><b>${list.length}</b><span>clase${list.length === 1 ? '' : 's'}</span></div>
+      <div class="kpi"><b>${all.length}</b><span>inscritos</span></div>
+      <div class="kpi"><b>${count('asistio')}</b><span>asistieron</span></div>
+      <div class="kpi"><b>${count('falta')}</b><span>faltaron</span></div></div>` : ''}
+    ${list.length ? list.map(x => {
+      const s = x.horario;
+      return `<div class="card" style="margin-bottom:14px">
+        <div class="row"><h3 style="margin:0">${fmtTime(s.hora)} · ${esc(clase(s.claseId).nombre || 'Clase')}</h3><span class="spacer"></span>
+          <span class="tag">${x.reservas.length}${s.cupo ? ' / ' + s.cupo : ''} inscritos</span></div>
+        <p class="muted small" style="margin:4px 0 0">${esc(s.sala)} · ${s.duracion} min${S.user.rol === 'admin' ? ' · ' + esc(instructor(s.instructorId).nombre) : ''}</p>
+        ${x.reservas.length ? `<div class="table-wrap" style="margin-top:12px"><table><tbody>${x.reservas.map((r, i) => `<tr>
+          <td style="width:28px" class="muted">${i + 1}</td>
+          <td><b>${esc(r.nombre)}</b>${r.telefono ? `<div class="muted small"><a href="tel:${esc(r.telefono.replace(/\D/g, ''))}">${esc(r.telefono)}</a></div>` : ''}</td>
+          <td>${stateTag(r.estado)}</td>
+          <td><div class="row" style="justify-content:flex-end;flex-wrap:nowrap">
+            <button class="btn ${r.estado === 'asistio' ? 'btn-primary' : 'btn-ghost'} btn-sm" data-mark="asistio" data-id="${esc(r.id)}">Asistió</button>
+            <button class="btn ${r.estado === 'falta' ? 'btn-danger' : 'btn-ghost'} btn-sm" data-mark="falta" data-id="${esc(r.id)}">Faltó</button></div></td></tr>`).join('')}
+          </tbody></table></div>
+          <div class="row" style="margin-top:12px"><button class="btn btn-ghost btn-sm" data-allin="${esc(s.id)}">Marcar a todos como asistió</button></div>`
+        : '<p class="muted small" style="margin:12px 0 0">Nadie inscrito todavía.</p>'}</div>`;
+    }).join('') : '<div class="empty card">No tienes clases este día.</div>'}
+  </div>`;
+  const reload = d => go('instructor/' + d);
+  $$('[data-day]', app).forEach(b => b.addEventListener('click', () => reload(b.dataset.day)));
+  $('#insDate', app).addEventListener('change', e => e.target.value && reload(e.target.value));
+  const mark = (ids, estado) => Promise.all(ids.map(reservaId => call('instructor.markAttendance', { reservaId, estado })));
+  $$('[data-mark]', app).forEach(b => b.addEventListener('click', () => {
+    // Un segundo clic sobre el mismo estado lo regresa a "reservada".
+    const current = (all.find(r => r.id === b.dataset.id) || {}).estado;
+    const estado = current === b.dataset.mark ? 'reservada' : b.dataset.mark;
+    busy(b, async () => { await mark([b.dataset.id], estado); pageInstructor(app, fecha); }).catch(() => {});
+  }));
+  $$('[data-allin]', app).forEach(b => b.addEventListener('click', () => {
+    const ids = list.find(x => x.horario.id === b.dataset.allin).reservas.filter(r => r.estado === 'reservada').map(r => r.id);
+    if (!ids.length) return toast('Ya está registrada la asistencia de todos.');
+    busy(b, async () => { await mark(ids, 'asistio'); toast('Asistencia registrada.'); pageInstructor(app, fecha); }).catch(() => {});
+  }));
+}
+
+// ---------------------------------------------------------------------------
+// Panel de administración
+
+const YESNO = [['true', 'Sí'], ['false', 'No']];
+const SCHEMAS = {
+  Horario: {
+    title: 'Horario semanal', cols: ['dia', 'hora', 'claseId', 'instructorId', 'cupo', 'activo'],
+    sort: (a, b) => (a.dia - b.dia) || (a.hora < b.hora ? -1 : 1),
+    fields: [
+      { k: 'claseId', l: 'Clase', t: 'ref', ref: 'Clases' }, { k: 'instructorId', l: 'Instructora', t: 'ref', ref: 'Instructores' },
+      { k: 'dia', l: 'Día', t: 'select', opts: DAYS.map((d, i) => [String(i), d]) }, { k: 'hora', l: 'Hora', t: 'time' },
+      { k: 'duracion', l: 'Duración (min)', t: 'number', def: 60 }, { k: 'sala', l: 'Sala', def: 'Espacio Cielo' },
+      { k: 'cupo', l: 'Cupo', t: 'number', def: 12, hint: '0 = sin límite' },
+      { k: 'modalidad', l: 'Modalidad', t: 'select', opts: [['presencial', 'Presencial'], ['en línea', 'En línea']] },
+      { k: 'activo', l: 'Activa', t: 'bool', def: true }],
+  },
+  Clases: {
+    title: 'Estilos de clase', cols: ['nombre', 'nivel', 'intensidad', 'activo'],
+    fields: [{ k: 'nombre', l: 'Nombre' }, { k: 'nivel', l: 'Nivel', t: 'select', opts: ['Principiante', 'Intermedio', 'Avanzado', 'Multinivel'].map(x => [x, x]) },
+      { k: 'intensidad', l: 'Intensidad', t: 'select', opts: ['Baja', 'Media', 'Alta'].map(x => [x, x]) },
+      { k: 'descripcion', l: 'Descripción', t: 'textarea' }, { k: 'activo', l: 'Visible', t: 'bool', def: true }],
+  },
+  Instructores: {
+    title: 'Instructoras', cols: ['nombre', 'titulo', 'orden', 'activo'], sort: (a, b) => a.orden - b.orden,
+    fields: [{ k: 'nombre', l: 'Nombre' }, { k: 'titulo', l: 'Especialidad' }, { k: 'bio', l: 'Biografía', t: 'textarea' },
+      { k: 'foto', l: 'Foto', t: 'image' }, { k: 'orden', l: 'Orden', t: 'number', def: 10 }, { k: 'activo', l: 'Visible', t: 'bool', def: true }],
+  },
+  Paquetes: {
+    title: 'Paquetes', cols: ['nombre', 'precio', 'clases', 'vigenciaDias', 'activo'], sort: (a, b) => a.orden - b.orden,
+    fields: [{ k: 'nombre', l: 'Nombre' }, { k: 'precio', l: 'Precio (MXN)', t: 'number' },
+      { k: 'clases', l: 'Número de clases', t: 'number', hint: '0 = ilimitado' }, { k: 'vigenciaDias', l: 'Vigencia (días)', t: 'number', def: 30 },
+      { k: 'descripcion', l: 'Descripción', t: 'textarea' }, { k: 'soloNuevos', l: 'Solo primera visita', t: 'bool' },
+      { k: 'destacado', l: 'Destacado', t: 'bool' }, { k: 'orden', l: 'Orden', t: 'number', def: 10 }, { k: 'activo', l: 'A la venta', t: 'bool', def: true }],
+  },
+  Videos: {
+    title: 'Videoteca', cols: ['titulo', 'acceso', 'activo'],
+    fields: [{ k: 'titulo', l: 'Título' }, { k: 'url', l: 'Enlace (YouTube, Vimeo o Drive)' }, { k: 'descripcion', l: 'Descripción', t: 'textarea' },
+      { k: 'acceso', l: 'Acceso', t: 'select', opts: [['miembros', 'Solo con paquete vigente'], ['publico', 'Público']] }, { k: 'activo', l: 'Visible', t: 'bool', def: true }],
+  },
+  Galeria: {
+    title: 'Imágenes del diseño', cols: ['imagen', 'uso', 'pagina', 'orden', 'activo'], sort: (a, b) => a.orden - b.orden,
+    fields: [{ k: 'imagen', l: 'Imagen', t: 'image', hint: 'Horizontal y de buena calidad (ej. 1920 × 1080). Es decorativa: no se abre al tocarla.' },
+      { k: 'uso', l: 'Uso', t: 'select', opts: DESIGN_USES }, { k: 'pagina', l: 'Página', t: 'select', opts: PAGE_LABELS },
+      { k: 'titulo', l: 'Descripción breve (para lectores de pantalla)', hint: 'Ej. “Sala de práctica con luz natural”' },
+      { k: 'orden', l: 'Orden', t: 'number', def: 10, hint: 'Si una página tiene varios fondos, se usa el de menor orden.' },
+      { k: 'activo', l: 'Visible', t: 'bool', def: true }],
+  },
+  Musica: {
+    title: 'Música', cols: ['titulo', 'paginas', 'orden', 'activo'], sort: (a, b) => a.orden - b.orden,
+    fields: [{ k: 'titulo', l: 'Título' }, { k: 'audio', l: 'Archivo de audio', t: 'audio', hint: 'Usa música con licencia para uso comercial o libre de derechos.' },
+      { k: 'paginas', l: 'Sonará en', t: 'pages', hint: 'Si una página tiene varias canciones, se reproducen en orden.' },
+      { k: 'orden', l: 'Orden', t: 'number', def: 10 }, { k: 'activo', l: 'Activa', t: 'bool', def: true }],
+  },
+};
+
+const CONFIG_FIELDS = [
+  { k: 'nombre', l: 'Nombre del estudio' }, { k: 'lema', l: 'Lema' }, { k: 'descripcion', l: 'Descripción (portada)', t: 'textarea' },
+  { k: 'heroImagen', l: 'Imagen de portada', t: 'image' }, { k: 'direccion', l: 'Dirección' }, { k: 'ciudad', l: 'Ciudad' },
+  { k: 'telefono', l: 'Teléfono' }, { k: 'whatsapp', l: 'WhatsApp', hint: 'Con lada de país, ej. 528711234567' }, { k: 'email', l: 'Correo' },
+  { k: 'instagram', l: 'Instagram (URL)' }, { k: 'facebook', l: 'Facebook (URL)' },
+  { k: 'horasCancelacion', l: 'Horas mínimas para cancelar', t: 'number' },
+  { k: 'mapa', l: 'URL del mapa incrustado', hint: 'Opcional; si se deja vacío se usa la dirección' },
+  { k: 'terminos', l: 'Términos (un punto por línea)', t: 'textarea' },
+  { k: 'favicon', l: 'Ícono de la pestaña', t: 'image', hint: 'Opcional. PNG cuadrado.' },
+];
+const PAY_FIELDS = [
+  { k: 'pagoBanco', l: 'Banco', hint: 'Ej. BBVA, Banorte, Santander' }, { k: 'pagoTitular', l: 'Titular de la cuenta' },
+  { k: 'pagoClabe', l: 'CLABE interbancaria', hint: '18 dígitos, para transferencias' },
+  { k: 'pagoTarjeta', l: 'Número de tarjeta', hint: 'Opcional, para depósitos en OXXO o ventanilla' },
+  { k: 'linkPago', l: 'Link de pago en línea', hint: 'Opcional: Mercado Pago, Stripe, Clip…' },
+  { k: 'datosPago', l: 'Instrucciones adicionales', t: 'textarea', hint: 'Ej. pon tu nombre en el concepto de la transferencia' },
+];
+const COLOR_FIELDS = [
+  { k: 'colorPrimario', l: 'Botones y acciones', t: 'color' }, { k: 'colorAcento', l: 'Logo y detalles', t: 'color' },
+  { k: 'colorTitulos', l: 'Títulos', t: 'color' }, { k: 'colorTexto', l: 'Textos', t: 'color' },
+  { k: 'colorFondo', l: 'Fondo de la página', t: 'color' }, { k: 'colorSuave', l: 'Fondos secundarios', t: 'color' },
+  { k: 'colorBordes', l: 'Bordes y separadores', t: 'color' },
+].map(f => Object.assign(f, { def: BRAND_COLORS[f.k] }));
+
+async function admList(tabla, force) {
+  if (force || !S.adm[tabla]) S.adm[tabla] = await call('admin.list', { tabla });
+  return S.adm[tabla];
+}
+
+function cellValue(tabla, k, row) {
+  const v = row[k];
+  if (typeof v === 'boolean') return v ? '<span class="tag tag-ok">Sí</span>' : '<span class="tag tag-bad">No</span>';
+  if (k === 'dia') return DAYS[v];
+  if (k === 'hora') return fmtTime(v);
+  if (k === 'precio') return money(v);
+  if (k === 'clases') return v === 0 ? 'Ilimitadas' : v;
+  if (k === 'imagen') return v ? `<img src="${esc(v)}" alt="" style="width:72px;height:48px;object-fit:cover;border-radius:6px">` : '—';
+  if (k === 'pagina') return esc(pageLabel(v));
+  if (k === 'uso') return esc((DESIGN_USES.find(u => u[0] === (v || 'fondo')) || ['', v])[1]);
+  if (k === 'paginas') return esc(String(v || '').split(',').filter(Boolean).map(pageLabel).join(', ') || '—');
+  if (k === 'claseId') return esc(byId(S.adm.Clases, v).nombre || '—');
+  if (k === 'instructorId') return esc(byId(S.adm.Instructores, v).nombre || '—');
+  return esc(v);
+}
+
+function fieldHtml(f, value) {
+  const v = value === undefined ? (f.def !== undefined ? f.def : '') : value;
+  const hint = f.hint ? `<small class="muted">${esc(f.hint)}</small>` : '';
+  const full = f.t === 'textarea' || f.t === 'image' ? ' class="full"' : '';
+  if (f.t === 'textarea') return `<label${full}><span>${f.l}</span><textarea name="${f.k}">${esc(v)}</textarea>${hint}</label>`;
+  if (f.t === 'bool') return `<label class="check"><input type="checkbox" name="${f.k}" ${v === true || v === 'true' ? 'checked' : ''}>${f.l}</label>`;
+  if (f.t === 'select' || f.t === 'ref') {
+    const opts = f.t === 'ref' ? (S.adm[f.ref] || []).map(x => [x.id, x.nombre]) : f.opts;
+    return `<label><span>${f.l}</span><select name="${f.k}">${opts.map(o => `<option value="${esc(o[0])}" ${String(v) === String(o[0]) ? 'selected' : ''}>${esc(o[1])}</option>`).join('')}</select>${hint}</label>`;
+  }
+  if (f.t === 'image') return `<div class="full" style="margin-bottom:14px"><label style="margin-bottom:6px"><span>${f.l}</span><input name="${f.k}" value="${esc(v)}" placeholder="URL de la imagen"></label>
+    <div class="row">${v ? `<img src="${esc(v)}" alt="" style="width:64px;height:64px;object-fit:cover;border-radius:8px">` : ''}
+    <input type="file" accept="${ACCEPT.imagen}" data-upload="${f.k}" data-kind="imagen" style="max-width:280px"><small class="muted">Se guarda en tu Drive · máx. 5 MB</small></div>${hint}</div>`;
+  if (f.t === 'audio') return `<div class="full" style="margin-bottom:14px"><label style="margin-bottom:6px"><span>${f.l}</span><input name="${f.k}" value="${esc(v)}" placeholder="URL del audio"></label>
+    <div class="row">${v ? `<audio controls preload="none" src="${esc(v)}" style="max-width:260px"></audio>` : ''}
+    <input type="file" accept="${ACCEPT.audio}" data-upload="${f.k}" data-kind="audio" style="max-width:280px"><small class="muted">MP3, M4A u OGG · máx. 15 MB</small></div>${hint}</div>`;
+  if (f.t === 'pages') {
+    const on = String(v).split(',');
+    return `<div class="full" style="margin-bottom:14px"><span style="display:block;font-weight:500;font-size:.9rem;margin-bottom:6px">${f.l}</span>
+      <div class="page-checks">${PAGE_LABELS.map(p => `<label class="check"><input type="checkbox" name="${f.k}" value="${p[0]}" data-multi ${on.indexOf(p[0]) >= 0 ? 'checked' : ''}>${p[1]}</label>`).join('')}</div>${hint}</div>`;
+  }
+  if (f.t === 'color') return `<label><span>${f.l}</span><input type="color" name="${f.k}" value="${esc(/^#[0-9a-f]{6}$/i.test(v) ? v : f.def || '#000000')}">${hint}</label>`;
+  const type = f.t === 'number' ? 'number' : f.t === 'time' ? 'time' : 'text';
+  return `<label><span>${f.l}</span><input type="${type}" name="${f.k}" value="${esc(v)}" ${type === 'number' ? 'step="any"' : ''}>${hint}</label>`;
+}
+
+function bindUploads(root) {
+  $$('[data-upload]', root).forEach(inp => inp.addEventListener('change', async () => {
+    const audio = inp.dataset.kind === 'audio';
+    try {
+      toast(audio ? 'Subiendo audio… puede tardar un poco.' : 'Subiendo imagen…');
+      const archivo = await readFile(inp, audio ? 15 : 5);
+      const r = await call('admin.upload', { archivo, tipo: inp.dataset.kind });
+      $(`[name="${inp.dataset.upload}"]`, root).value = r.url;
+      toast(audio ? 'Audio subido. Guarda para publicarlo.' : 'Imagen subida. Guarda para publicarla.');
+    } catch (e) { toast(e.message, true); }
+  }));
+}
+
+async function adminCrud(box, tabla) {
+  const schema = SCHEMAS[tabla];
+  await Promise.all([admList('Clases'), admList('Instructores')]);
+  const rows = (await admList(tabla, true)).slice().sort(schema.sort || (() => 0));
+  const label = k => (schema.fields.find(f => f.k === k) || { l: k }).l;
+  box.innerHTML = `<div class="row" style="margin-bottom:14px"><h2 style="margin:0">${schema.title}</h2><span class="spacer"></span>
+    <button class="btn btn-primary btn-sm" id="addRow">+ Agregar</button></div>
+    ${rows.length ? `<div class="table-wrap"><table><thead><tr>${schema.cols.map(k => `<th>${esc(label(k))}</th>`).join('')}<th></th></tr></thead>
+    <tbody>${rows.map(r => `<tr>${schema.cols.map(k => `<td>${cellValue(tabla, k, r)}</td>`).join('')}
+      <td class="row" style="flex-wrap:nowrap"><button class="btn btn-ghost btn-sm" data-edit="${esc(r.id)}">Editar</button>
+      <button class="btn btn-danger btn-sm" data-del="${esc(r.id)}">Borrar</button></td></tr>`).join('')}</tbody></table></div>`
+      : '<div class="empty card">Sin registros todavía.</div>'}`;
+  const edit = row => {
+    const body = openModal((row ? 'Editar' : 'Agregar') + ' · ' + schema.title, `<form id="crud"><div class="form-grid">${schema.fields.map(f => fieldHtml(f, row ? row[f.k] : undefined)).join('')}</div>
+      <button class="btn btn-primary" type="submit">Guardar</button></form>`);
+    bindUploads(body);
+    $('#crud', body).addEventListener('submit', e => {
+      e.preventDefault();
+      const item = formData(e.target);
+      if (row) item.id = row.id;
+      busy($('button[type=submit]', e.target), async () => {
+        await call('admin.save', { tabla, item });
+        closeModal(); toast('Guardado.'); await refreshPublic(); adminCrud(box, tabla);
+      }).catch(() => {});
+    });
+  };
+  $('#addRow', box).addEventListener('click', () => edit(null));
+  $$('[data-edit]', box).forEach(b => b.addEventListener('click', () => edit(rows.find(r => r.id === b.dataset.edit))));
+  $$('[data-del]', box).forEach(b => b.addEventListener('click', () => {
+    if (!confirm('¿Borrar este registro? No se puede deshacer.')) return;
+    busy(b, async () => { await call('admin.delete', { tabla, id: b.dataset.del }); toast('Borrado.'); await refreshPublic(); adminCrud(box, tabla); }).catch(() => {});
+  }));
+}
+
+async function refreshPublic() {
+  S.data = await call('public.bootstrap');
+  S.adm = {};
+  renderChrome();
+}
+
+async function adminOverview(box) {
+  const o = await call('admin.overview');
+  box.innerHTML = `<div class="kpis">
+    <div class="kpi"><b>${o.reservasHoy}</b><span>reservas hoy</span></div>
+    <div class="kpi"><b>${o.pendientes}</b><span>pagos por validar</span></div>
+    <div class="kpi"><b>${o.alumnosActivos}</b><span>alumnos con paquete vigente</span></div>
+    <div class="kpi"><b>${o.alumnos}</b><span>alumnos registrados</span></div>
+    <div class="kpi"><b>${money(o.ingresosMes)}</b><span>ventas aprobadas este mes</span></div></div>
+    <div class="grid grid-2">
+      <div class="card"><h3>Acciones rápidas</h3><div class="row">
+        <button class="btn btn-primary btn-sm" data-goto="asistencia">Pasar lista de hoy</button>
+        <button class="btn btn-ghost btn-sm" data-goto="pagos">Validar pagos</button>
+        <button class="btn btn-ghost btn-sm" data-goto="alumnos">Vender paquete</button></div></div>
+      <div class="card"><h3>Vencen en 7 días</h3>${o.proximosVencimientos.length ? o.proximosVencimientos.map(v => `<div class="small">${esc(v.usuario)} · ${fmtDate(v.vence)}</div>`).join('') : '<p class="muted small">Nadie por ahora.</p>'}</div>
+    </div>`;
+  $$('[data-goto]', box).forEach(b => b.addEventListener('click', () => go('admin/' + b.dataset.goto)));
+}
+
+async function adminAttendance(box, fecha) {
+  fecha = fecha || S.attDate || todayMx();
+  S.attDate = fecha;
+  const [list, students] = await Promise.all([call('admin.attendance', { fecha }), admStudents()]);
+  box.innerHTML = `<div class="week-nav"><button class="btn btn-ghost btn-sm" id="dPrev">←</button>
+    <input type="date" id="dPick" value="${fecha}" style="width:auto"><button class="btn btn-ghost btn-sm" id="dNext">→</button>
+    <b>${fmtDate(fecha, true)}</b></div>
+    ${list.length ? list.map(x => {
+      const s = x.horario;
+      return `<div class="card" style="margin-bottom:14px"><div class="row"><h3 style="margin:0">${fmtTime(s.hora)} · ${esc(clase(s.claseId).nombre)}</h3>
+        <span class="muted small">${esc(instructor(s.instructorId).nombre)} · ${x.reservas.length}${s.cupo ? '/' + s.cupo : ''} lugares</span></div>
+        ${x.reservas.length ? `<div class="table-wrap" style="margin-top:12px"><table><tbody>${x.reservas.map(r => `<tr><td>${esc(r.nombre)}<div class="muted small">${esc(r.telefono)}</div></td>
+          <td>${stateTag(r.estado)}</td><td class="row" style="justify-content:flex-end">
+          <button class="btn btn-ghost btn-sm" data-mark="asistio" data-id="${esc(r.id)}">Asistió</button>
+          <button class="btn btn-ghost btn-sm" data-mark="falta" data-id="${esc(r.id)}">Faltó</button>
+          <button class="btn btn-danger btn-sm" data-acancel="${esc(r.id)}">Cancelar</button></td></tr>`).join('')}</tbody></table></div>` : '<p class="muted small" style="margin:10px 0 0">Sin reservas.</p>'}
+        <form class="row" data-addfor="${esc(s.id)}" style="margin-top:12px"><select name="usuarioId" style="max-width:280px"><option value="">Agregar alumno…</option>
+          ${students.filter(u => u.activo).map(u => `<option value="${esc(u.id)}">${esc(u.nombre)} (${esc(u.clasesDisponibles)})</option>`).join('')}</select>
+          <button class="btn btn-ghost btn-sm" type="submit">Agregar</button></form></div>`;
+    }).join('') : '<div class="empty card">No hay clases programadas este día.</div>'}`;
+  const reload = d => adminAttendance(box, d);
+  $('#dPrev', box).addEventListener('click', () => reload(addDays(fecha, -1)));
+  $('#dNext', box).addEventListener('click', () => reload(addDays(fecha, 1)));
+  $('#dPick', box).addEventListener('change', e => e.target.value && reload(e.target.value));
+  $$('[data-mark]', box).forEach(b => b.addEventListener('click', () => busy(b, async () => { await call('admin.markAttendance', { reservaId: b.dataset.id, estado: b.dataset.mark }); reload(fecha); }).catch(() => {})));
+  $$('[data-acancel]', box).forEach(b => b.addEventListener('click', () => {
+    if (!confirm('¿Cancelar la reserva y devolver la clase al alumno?')) return;
+    busy(b, async () => { await call('admin.cancelFor', { reservaId: b.dataset.acancel }); S.adm.students = null; reload(fecha); }).catch(() => {});
+  }));
+  $$('[data-addfor]', box).forEach(f => f.addEventListener('submit', e => {
+    e.preventDefault();
+    const usuarioId = f.usuarioId.value;
+    if (!usuarioId) return;
+    busy($('button', f), async () => { await call('admin.bookFor', { usuarioId, horarioId: f.dataset.addfor, fecha }); S.adm.students = null; toast('Alumno agregado.'); reload(fecha); }).catch(() => {});
+  }));
+}
+
+async function admStudents(force) {
+  if (force || !S.adm.students) S.adm.students = await call('admin.students');
+  return S.adm.students;
+}
+
+function sellModal(usuarioId, after) {
+  const students = S.adm.students || [];
+  const body = openModal('Venta en estudio', `<form id="sell">
+    <label><span>Alumno</span><select name="usuarioId" required>${students.map(u => `<option value="${esc(u.id)}" ${u.id === usuarioId ? 'selected' : ''}>${esc(u.nombre)} · ${esc(u.email)}</option>`).join('')}</select></label>
+    <label><span>Paquete</span><select name="paqueteId">${S.data.paquetes.map(p => `<option value="${esc(p.id)}">${esc(p.nombre)} · ${money(p.precio)}</option>`).join('')}</select></label>
+    <label><span>Nota</span><input name="nota" placeholder="Efectivo, terminal…"></label>
+    <p class="muted small">Se activa en este momento.</p>
+    <button class="btn btn-primary" type="submit">Registrar venta</button></form>`);
+  $('#sell', body).addEventListener('submit', e => {
+    e.preventDefault();
+    busy($('button', e.target), async () => { await call('admin.sellPackage', formData(e.target)); closeModal(); toast('Venta registrada.'); S.adm.students = null; if (after) after(); }).catch(() => {});
+  });
+}
+
+async function adminPayments(box, estado) {
+  estado = estado === undefined ? 'pendiente' : estado;
+  const list = await call('admin.purchases', { estado });
+  await admStudents();
+  box.innerHTML = `<div class="row" style="margin-bottom:14px"><div class="chips" style="margin:0">
+    ${[['pendiente', 'Por validar'], ['aprobado', 'Aprobados'], ['rechazado', 'Rechazados'], ['', 'Todos']].map(o => `<button class="chip ${estado === o[0] ? 'on' : ''}" data-st="${o[0]}">${o[1]}</button>`).join('')}</div>
+    <span class="spacer"></span><button class="btn btn-primary btn-sm" id="sellBtn">Registrar venta en estudio</button></div>
+    ${list.length ? `<div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Alumno</th><th>Paquete</th><th>Precio</th><th>Comprobante</th><th>Estado</th><th></th></tr></thead><tbody>
+    ${list.map(c => `<tr><td>${esc(c.creado)}</td><td>${esc(c.usuario)}<div class="muted small">${esc(c.email)}${c.telefono ? ' · ' + esc(c.telefono) : ''}</div>${c.nota ? `<div class="small">“${esc(c.nota)}”</div>` : ''}</td>
+      <td>${esc(c.paquete)}</td><td>${money(c.precio)}</td>
+      <td>${c.comprobante ? `<a href="${esc(c.comprobante)}" target="_blank" rel="noopener">Ver</a>` : '<span class="muted">—</span>'}</td>
+      <td>${stateTag(c.estado)}${c.vence ? `<div class="muted small">vence ${fmtDate(c.vence)}</div>` : ''}</td>
+      <td>${c.estado === 'pendiente' ? `<div class="row" style="flex-wrap:nowrap"><button class="btn btn-primary btn-sm" data-ok="${esc(c.id)}">Aprobar</button>
+        <button class="btn btn-danger btn-sm" data-no="${esc(c.id)}">Rechazar</button></div>` : ''}</td></tr>`).join('')}</tbody></table></div>`
+      : '<div class="empty card">No hay compras en esta vista.</div>'}`;
+  const reload = () => adminPayments(box, estado);
+  $$('[data-st]', box).forEach(b => b.addEventListener('click', () => adminPayments(box, b.dataset.st)));
+  $('#sellBtn', box).addEventListener('click', () => sellModal(null, reload));
+  $$('[data-ok]', box).forEach(b => b.addEventListener('click', () => busy(b, async () => { await call('admin.reviewPurchase', { id: b.dataset.ok, estado: 'aprobado' }); toast('Pago aprobado; el paquete ya está activo.'); S.adm.students = null; reload(); }).catch(() => {})));
+  $$('[data-no]', box).forEach(b => b.addEventListener('click', () => {
+    const nota = prompt('Motivo del rechazo (lo verá el alumno):', 'No encontramos el pago');
+    if (nota === null) return;
+    busy(b, async () => { await call('admin.reviewPurchase', { id: b.dataset.no, estado: 'rechazado', nota }); toast('Compra rechazada.'); reload(); }).catch(() => {});
+  }));
+}
+
+const ROLE_LABEL = { alumno: 'Alumno', instructor: 'Instructora', admin: 'Administrador' };
+
+function roleModal(u, after) {
+  const body = openModal('Rol de ' + u.nombre, `<form id="roleForm">
+    <label><span>Rol</span><select name="rol">${Object.keys(ROLE_LABEL).map(r => `<option value="${r}" ${u.rol === r ? 'selected' : ''}>${ROLE_LABEL[r]}</option>`).join('')}</select></label>
+    <label id="insPick"><span>Ficha de instructora</span><select name="instructorId"><option value="">Elige…</option>
+      ${S.data.instructores.map(i => `<option value="${esc(i.id)}" ${u.instructorId === i.id ? 'selected' : ''}>${esc(i.nombre)}</option>`).join('')}</select>
+      <small class="muted">Verá y pasará lista solo en las clases asignadas a esta ficha en el horario.</small></label>
+    <p class="muted small">Alumno: reserva y compra. Instructora: además ve sus clases y pasa lista. Administrador: acceso total.</p>
+    <button class="btn btn-primary" type="submit">Guardar</button></form>`);
+  const form = $('#roleForm', body);
+  const sync = () => { $('#insPick', body).hidden = form.rol.value !== 'instructor'; };
+  form.rol.addEventListener('change', sync);
+  sync();
+  form.addEventListener('submit', e => {
+    e.preventDefault();
+    busy($('button', form), async () => {
+      await call('admin.setUser', { id: u.id, rol: form.rol.value, instructorId: form.instructorId.value });
+      closeModal(); toast('Rol actualizado.'); if (after) after();
+    }).catch(() => {});
+  });
+}
+
+async function adminStudents(box) {
+  const list = await admStudents(true);
+  const draw = q => {
+    const term = (q || '').toLowerCase();
+    const rows = list.filter(u => !term || (u.nombre + ' ' + u.email + ' ' + u.telefono).toLowerCase().includes(term));
+    $('#stuBody', box).innerHTML = rows.map(u => `<tr><td>${esc(u.nombre)}${u.rol !== 'alumno' ? ` <span class="tag">${esc(ROLE_LABEL[u.rol])}</span>` : ''}${!u.activo ? ' <span class="tag tag-bad">inactivo</span>' : ''}
+      ${u.rol === 'instructor' ? `<div class="muted small">Ficha: ${esc(instructor(u.instructorId).nombre || 'sin ligar')}</div>` : ''}
+      <div class="muted small">${esc(u.email)}</div></td>
+      <td>${u.telefono ? `<a href="${esc(waPhoneLink(u.telefono))}" target="_blank" rel="noopener">${esc(u.telefono)}</a>` : '—'}</td>
+      <td>${esc(u.clasesDisponibles)}</td><td>${u.vence ? fmtDate(u.vence) : '—'}</td>
+      <td><div class="row" style="flex-wrap:nowrap"><button class="btn btn-primary btn-sm" data-sell="${esc(u.id)}">Vender</button>
+        <button class="btn btn-ghost btn-sm" data-role="${esc(u.id)}">Rol</button>
+        <button class="btn btn-ghost btn-sm" data-act="${esc(u.id)}" data-to="${u.activo ? 'false' : 'true'}">${u.activo ? 'Desactivar' : 'Activar'}</button></div></td></tr>`).join('')
+      || '<tr><td colspan="5" class="empty">Sin resultados.</td></tr>';
+    $$('[data-sell]', box).forEach(b => b.addEventListener('click', () => sellModal(b.dataset.sell, () => adminStudents(box))));
+    $$('[data-role]', box).forEach(b => b.addEventListener('click', () => roleModal(list.find(u => u.id === b.dataset.role), () => adminStudents(box))));
+    $$('[data-act]', box).forEach(b => b.addEventListener('click', () => busy(b, async () => { await call('admin.setUser', { id: b.dataset.act, activo: b.dataset.to === 'true' }); adminStudents(box); }).catch(() => {})));
+  };
+  box.innerHTML = `<div class="row" style="margin-bottom:14px"><input id="stuQ" placeholder="Buscar por nombre, correo o teléfono" style="max-width:360px">
+    <span class="spacer"></span><span class="muted small">${list.length} personas</span></div>
+    <div class="table-wrap"><table><thead><tr><th>Alumno</th><th>Teléfono</th><th>Clases</th><th>Vence</th><th></th></tr></thead><tbody id="stuBody"></tbody></table></div>`;
+  $('#stuQ', box).addEventListener('input', e => draw(e.target.value));
+  draw('');
+}
+
+function adminSite(box) {
+  const c = cfg();
+  box.innerHTML = `<form class="card" id="cfgForm">
+    <h2>Colores</h2><p class="muted small">Los cambios se ven al momento; se publican al tocar <b>Guardar cambios</b>.</p>
+    <div class="color-row">${COLOR_FIELDS.map(f => fieldHtml(f, c[f.k] || BRAND_COLORS[f.k])).join('')}</div>
+    <p><button class="btn btn-ghost btn-sm" type="button" id="resetColors">Restaurar colores de marca</button></p>
+    <h2 style="margin-top:28px">Datos para recibir pagos</h2>
+    <p class="muted small">Los alumnos los ven al comprar un paquete y pueden copiar la CLABE con un toque.</p>
+    <div class="form-grid">${PAY_FIELDS.map(f => fieldHtml(f, c[f.k] || '')).join('')}</div>
+    <h2 style="margin-top:28px">Datos del sitio</h2><div class="form-grid">${CONFIG_FIELDS.map(f => fieldHtml(f, c[f.k] || '')).join('')}</div>
+    <button class="btn btn-primary" type="submit">Guardar cambios</button></form>`;
+  bindUploads(box);
+  const form = $('#cfgForm', box);
+  $$('input[type=color]', form).forEach(inp => inp.addEventListener('input', () => applyTheme(Object.assign({}, cfg(), formData(form)))));
+  $('#resetColors', form).addEventListener('click', () => {
+    Object.keys(BRAND_COLORS).forEach(k => { form[k].value = BRAND_COLORS[k]; });
+    applyTheme(Object.assign({}, cfg(), BRAND_COLORS));
+  });
+  form.addEventListener('submit', e => {
+    e.preventDefault();
+    busy($('button[type=submit]', e.target), async () => { await call('admin.saveConfig', { config: formData(e.target) }); await refreshPublic(); toast('Sitio actualizado.'); }).catch(() => {});
+  });
+}
+
+async function pageAdmin(app, tab) {
+  if (!S.user) { S.returnTo = 'admin'; return go('entrar'); }
+  if (S.user.rol !== 'admin') return go('panel');
+  tab = tab || 'resumen';
+  const tabs = { resumen: 'Resumen', asistencia: 'Asistencia', pagos: 'Pagos', alumnos: 'Alumnos', horario: 'Horario', clases: 'Clases',
+    instructores: 'Instructoras', paquetes: 'Paquetes', videos: 'Videos', galeria: 'Imágenes', musica: 'Música', sitio: 'Sitio' };
+  app.innerHTML = `<div class="wrap"><div class="panel-head"><h1>Administración</h1></div>
+    <div class="tabs">${Object.keys(tabs).map(k => `<button class="${k === tab ? 'on' : ''}" data-tab="${k}">${tabs[k]}</button>`).join('')}</div>
+    <div id="admBox"><div class="loading"><div class="spinner"></div></div></div></div>`;
+  $$('[data-tab]', app).forEach(b => b.addEventListener('click', () => go('admin/' + b.dataset.tab)));
+  const box = $('#admBox');
+  const crud = { horario: 'Horario', clases: 'Clases', instructores: 'Instructores', paquetes: 'Paquetes', videos: 'Videos', galeria: 'Galeria', musica: 'Musica' };
+  if (crud[tab]) return adminCrud(box, crud[tab]);
+  if (tab === 'asistencia') return adminAttendance(box);
+  if (tab === 'pagos') return adminPayments(box);
+  if (tab === 'alumnos') return adminStudents(box);
+  if (tab === 'sitio') return adminSite(box);
+  return adminOverview(box);
+}
+
+// ---------------------------------------------------------------------------
+// Instalar como app (solo en GitHub Pages, que tiene manifiesto y service worker).
+// En celular se invita una vez, a los pocos segundos; "Ahora no" la pospone 7 días y
+// la opción sigue en el menú.
+
+const INSTALL = { evt: null, shown: false, laterKey: 'yc_install_later', laterDays: 7 };
+const isStandalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+const isPhone = () => matchMedia('(pointer: coarse)').matches && Math.min(screen.width, screen.height) < 820;
+const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const canInstall = () => !!API_URL && !isStandalone() && (!!INSTALL.evt || isPhone());
+
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault(); // se usa nuestra invitación en lugar de la barra del navegador
+  INSTALL.evt = e;
+  if (S.data) { renderNav(); maybeInviteInstall(); }
+});
+window.addEventListener('appinstalled', () => {
+  INSTALL.evt = null;
+  hideInstall();
+  toast('¡Listo! yogacentral ya está en tu pantalla de inicio.');
+  renderNav();
+});
+
+function initInstall() {
+  // iPhone no avisa cuando se puede instalar: se invita con instrucciones.
+  if (isIOS()) maybeInviteInstall();
+}
+
+function maybeInviteInstall() {
+  if (INSTALL.shown || !canInstall() || !isPhone()) return;
+  const later = Number(store.get(INSTALL.laterKey) || 0);
+  if (Date.now() - later < INSTALL.laterDays * 864e5) return;
+  INSTALL.shown = true;
+  setTimeout(() => { if ($('#modal').hidden) showInstall(); }, 3500);
+}
+
+function installSteps() {
+  const share = '<svg viewBox="0 0 24 24" class="i-inline" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M12 3v12M7 8l5-5 5 5M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/></svg>';
+  if (isIOS()) return `<ol class="install-steps"><li>Toca ${share} <b>Compartir</b> en la barra de Safari.</li><li>Elige <b>Agregar a inicio</b>.</li><li>Toca <b>Agregar</b>.</li></ol>`;
+  return '<ol class="install-steps"><li>Abre el menú <b>⋮</b> del navegador.</li><li>Elige <b>Instalar app</b> o <b>Agregar a pantalla de inicio</b>.</li></ol>';
+}
+
+function showInstall() {
+  let sheet = $('#installSheet');
+  if (!sheet) {
+    sheet = document.createElement('aside');
+    sheet.id = 'installSheet';
+    sheet.className = 'install-sheet';
+    sheet.setAttribute('role', 'dialog');
+    sheet.setAttribute('aria-labelledby', 'installTitle');
+    document.body.appendChild(sheet);
+  }
+  const direct = !!INSTALL.evt;
+  sheet.innerHTML = `<button class="install-x" data-install-close aria-label="Cerrar">×</button>
+    <div class="install-head"><img src="app/icons/icon-192.png" alt="" width="56" height="56">
+      <div><h3 id="installTitle">Lleva ${esc(cfg().nombre || 'yogacentral')} en tu celular</h3>
+      <p class="muted small">Gratis y sin ocupar espacio de tienda de apps.</p></div></div>
+    <ul class="install-perks"><li><span>⚡</span>Abre al instante</li><li><span>📶</span>Funciona con poca señal</li><li><span>🧘</span>Reserva en dos toques</li></ul>
+    ${direct ? '' : installSteps()}
+    <div class="row install-actions">${direct ? '<button class="btn btn-primary" data-install-go>Instalar</button>' : ''}
+      <button class="btn btn-ghost" data-install-later>${direct ? 'Ahora no' : 'Entendido'}</button></div>`;
+  requestAnimationFrame(() => sheet.classList.add('open'));
+  $('[data-install-close]', sheet).addEventListener('click', laterInstall);
+  $('[data-install-later]', sheet).addEventListener('click', laterInstall);
+  const go = $('[data-install-go]', sheet);
+  if (go) go.addEventListener('click', async () => {
+    const evt = INSTALL.evt;
+    if (!evt) return;
+    evt.prompt();
+    const choice = await evt.userChoice.catch(() => ({ outcome: 'dismissed' }));
+    INSTALL.evt = null;
+    if (choice.outcome !== 'accepted') store.set(INSTALL.laterKey, String(Date.now()));
+    hideInstall();
+    renderNav();
+  });
+}
+
+function laterInstall() {
+  store.set(INSTALL.laterKey, String(Date.now()));
+  hideInstall();
+  toast('Puedes instalarla cuando quieras desde el menú.');
+}
+
+function hideInstall() {
+  const sheet = $('#installSheet');
+  if (sheet) sheet.classList.remove('open');
+}
+
+// ---------------------------------------------------------------------------
+// Arranque
+
+document.addEventListener('click', e => {
+  if (e.target.closest('[data-install-open]')) { e.preventDefault(); showInstall(); }
+  if (e.target.closest('[data-close]')) closeModal();
+  // Apps Script sirve la página dentro de un marco: llamar y escribir correo se abren fuera de él.
+  const contact = e.target.closest('a[href^="tel:"], a[href^="mailto:"]');
+  if (contact) contact.target = '_top';
+}, true);
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('#modal').hidden) closeModal(); });
+$('#menuBtn').addEventListener('click', () => {
+  const open = $('#nav').classList.toggle('open');
+  $('#menuBtn').setAttribute('aria-expanded', String(open));
+});
+window.addEventListener('hashchange', render);
+
+// Arranque inmediato con lo guardado de la visita anterior; los datos frescos llegan después
+// y solo se vuelve a dibujar si cambiaron y la persona no está llenando un formulario.
+function applyBootstrap(data) {
+  S.data = data;
+  S.user = data.user || null;
+  if (!S.user && S.token) { store.set('yc_token', null); S.token = null; }
+  store.set('yc_user', S.user ? JSON.stringify(S.user) : null);
+}
+
+function showBootError(e) {
+  $('#app').innerHTML = '<div class="wrap section center"><h2>' + (e.offline ? 'Sin conexión' : 'No pudimos cargar el sitio') + '</h2><p class="muted">' +
+    esc(e.offline ? 'Para la primera visita necesitas internet. Después el sitio abre aunque tengas poca señal.' : e.message) +
+    '</p><button class="btn btn-primary" onclick="location.reload()">Reintentar</button></div>';
+}
+
+async function refreshBootstrap() {
+  const fresh = await call('public.bootstrap');
+  const publicPart = Object.assign({}, fresh, { user: null, ahora: '' });
+  const before = JSON.stringify(Object.assign({}, S.data || {}, { user: null, ahora: '' }));
+  saved.set('yc_boot', publicPart);
+  const changed = JSON.stringify(publicPart) !== before || JSON.stringify(fresh.user) !== JSON.stringify(S.user);
+  applyBootstrap(fresh);
+  return changed;
+}
+
+(async function start() {
+  S.token = store.get('yc_token');
+  initPlayer();
+  const hit = saved.get('yc_boot');
+  if (hit) {
+    let user = null;
+    try { user = JSON.parse(store.get('yc_user') || 'null'); } catch (e) { user = null; }
+    applyBootstrap(Object.assign({}, hit.v, { user: S.token ? user : null }));
+    renderChrome(); renderNav(); render();
+  }
+  try {
+    const changed = await refreshBootstrap();
+    const typing = document.activeElement && document.activeElement.closest && document.activeElement.closest('form');
+    if (!hit || (changed && $('#modal').hidden && !typing)) { renderChrome(); renderNav(); render(); }
+    else { renderChrome(); renderNav(); }
+  } catch (e) {
+    if (!hit) return showBootError(e);
+    if (e.offline) setOffline(true, hit.t);
+  }
+  initInstall();
+})();
+
+window.addEventListener('online', () => { setOffline(false); refreshBootstrap().then(changed => { if (changed && $('#modal').hidden) { renderChrome(); renderNav(); render(); } }).catch(() => null); });
+window.addEventListener('offline', () => setOffline(true));

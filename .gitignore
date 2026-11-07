@@ -2,3 +2,4 @@ dev/.data.json
 dev/.uploads/
 .clasp.json
 node_modules/
+dev/.site/

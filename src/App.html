@@ -66,23 +66,69 @@ function fmtTime(hhmm) {
   return ((h % 12) || 12) + ':' + String(m).padStart(2, '0') + (h < 12 ? ' am' : ' pm');
 }
 
-function call(action, payload) {
+// En GitHub Pages el generador define window.YC_API (la URL /exec) y se usa fetch;
+// servido por Apps Script se usa google.script.run.
+const API_URL = window.YC_API || '';
+const offlineError = () => Object.assign(new Error('Sin conexión. Revisa tu internet e intenta de nuevo.'), { offline: true });
+
+function send(action, payload) {
+  if (API_URL) {
+    if (navigator.onLine === false) return Promise.reject(offlineError());
+    return fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // sin verificación CORS previa
+      body: JSON.stringify({ action, payload: payload || {}, token: S.token }),
+    }).then(r => r.json()).catch(() => { throw offlineError(); });
+  }
   return new Promise((resolve, reject) => {
-    google.script.run
-      .withSuccessHandler(r => {
-        if (r && r.ok) return resolve(r.data);
-        const msg = (r && r.error) || 'Sin respuesta del servidor.';
-        if (/sesión expiró/i.test(msg)) {
-          setSession(null);
-          closeModal();
-          S.returnTo = currentRoute().join('/');
-          setTimeout(() => go('entrar'), 0);
-        }
-        reject(new Error(msg));
-      })
-      .withFailureHandler(() => reject(new Error('No se pudo conectar. Revisa tu conexión.')))
+    google.script.run.withSuccessHandler(resolve).withFailureHandler(() => reject(offlineError()))
       .api(action, payload || {}, S.token);
   });
+}
+
+function call(action, payload) {
+  return send(action, payload).then(r => {
+    setOffline(false);
+    if (r && r.ok) return r.data;
+    const msg = (r && r.error) || 'Sin respuesta del servidor.';
+    if (/sesión expiró/i.test(msg)) {
+      setSession(null);
+      closeModal();
+      S.returnTo = currentRoute().join('/');
+      setTimeout(() => go('entrar'), 0);
+    }
+    throw new Error(msg);
+  }, e => { if (e.offline) setOffline(true); throw e; });
+}
+
+// Consultas de solo lectura: si no hay señal se usa la última respuesta guardada en el celular.
+const saved = {
+  get(k) { try { return JSON.parse(store.get(k) || 'null'); } catch (e) { return null; } },
+  set(k, v) { try { store.set(k, JSON.stringify({ t: Date.now(), v })); } catch (e) { return; } },
+};
+async function cachedCall(action, payload, key) {
+  try {
+    const data = await call(action, payload);
+    saved.set(key, data);
+    return data;
+  } catch (e) {
+    const hit = e.offline && saved.get(key);
+    if (!hit) throw e;
+    setOffline(true, hit.t);
+    return hit.v;
+  }
+}
+
+// Aviso discreto bajo el menú mientras no hay conexión.
+function setOffline(on, since) {
+  const bar = $('#offline');
+  if (!bar) return;
+  if (on) {
+    const t = since ? new Date(since) : null;
+    bar.textContent = 'Sin conexión' + (t ? ' · información guardada el ' + t.toLocaleDateString('es-MX', { day: 'numeric', month: 'short' }) +
+      ' a las ' + t.toLocaleTimeString('es-MX', { hour: 'numeric', minute: '2-digit' }) : '') + ' · se actualiza sola al volver la señal';
+  }
+  bar.hidden = !on;
 }
 
 function toast(msg, isError) {
@@ -139,9 +185,12 @@ function formData(form) {
 }
 
 function setSession(session) {
+  // Al salir se borra lo guardado de esa cuenta en el celular.
+  if (!session && S.user) store.set('yc_dash_' + S.user.id, null);
   S.token = session ? session.token : null;
   S.user = session ? session.user : null;
   store.set('yc_token', S.token);
+  store.set('yc_user', S.user ? JSON.stringify(S.user) : null);
   renderNav();
 }
 
@@ -285,10 +334,11 @@ async function render() {
 
 function renderNav() {
   const u = S.user;
-  $('#navAuth').innerHTML = !u
+  const install = canInstall() ? '<a href="#" class="nav-install" data-install-open>📲 Instalar app</a>' : '';
+  $('#navAuth').innerHTML = install + (!u
     ? '<a href="#/entrar">Iniciar sesión</a><a class="btn btn-primary btn-sm" href="#/registro">Crear cuenta</a>'
     : (u.rol === 'admin' ? '<a href="#/admin">Administrar</a>' : '') + (u.rol === 'instructor' ? '<a href="#/instructor">Mis clases</a>' : '')
-      + '<a class="btn btn-primary btn-sm" href="#/panel">Mi cuenta</a>';
+      + '<a class="btn btn-primary btn-sm" href="#/panel">Mi cuenta</a>');
 }
 
 function renderChrome() {
@@ -716,7 +766,7 @@ async function pageMember(app, tab) {
   if (!S.user) { S.returnTo = 'panel'; return go('entrar'); }
   tab = tab || 'resumen';
   app.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
-  const d = await call('me.dashboard');
+  const d = await cachedCall('me.dashboard', {}, 'yc_dash_' + S.user.id);
   S.user = d.user;
   const now = nowMx();
   const upcoming = d.reservas.filter(r => r.estado === 'reservada' && r.fecha >= todayMx())
@@ -803,7 +853,7 @@ async function pageInstructor(app, fecha) {
   if (S.user.rol !== 'instructor' && S.user.rol !== 'admin') return go('panel');
   fecha = /^\d{4}-\d{2}-\d{2}$/.test(fecha || '') ? fecha : todayMx();
   app.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
-  const list = await call('instructor.classes', { fecha });
+  const list = await cachedCall('instructor.classes', { fecha }, 'yc_ins_' + S.user.id + '_' + fecha);
   const all = list.reduce((a, x) => a.concat(x.reservas), []);
   const count = st => all.filter(r => r.estado === st).length;
   const strip = [0, 1, 2, 3, 4, 5, 6].map(i => addDays(todayMx(), i));
@@ -1226,9 +1276,98 @@ async function pageAdmin(app, tab) {
 }
 
 // ---------------------------------------------------------------------------
+// Instalar como app (solo en GitHub Pages, que tiene manifiesto y service worker).
+// En celular se invita una vez, a los pocos segundos; "Ahora no" la pospone 7 días y
+// la opción sigue en el menú.
+
+const INSTALL = { evt: null, shown: false, laterKey: 'yc_install_later', laterDays: 7 };
+const isStandalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+const isPhone = () => matchMedia('(pointer: coarse)').matches && Math.min(screen.width, screen.height) < 820;
+const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const canInstall = () => !!API_URL && !isStandalone() && (!!INSTALL.evt || isPhone());
+
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault(); // se usa nuestra invitación en lugar de la barra del navegador
+  INSTALL.evt = e;
+  if (S.data) { renderNav(); maybeInviteInstall(); }
+});
+window.addEventListener('appinstalled', () => {
+  INSTALL.evt = null;
+  hideInstall();
+  toast('¡Listo! yogacentral ya está en tu pantalla de inicio.');
+  renderNav();
+});
+
+function initInstall() {
+  // iPhone no avisa cuando se puede instalar: se invita con instrucciones.
+  if (isIOS()) maybeInviteInstall();
+}
+
+function maybeInviteInstall() {
+  if (INSTALL.shown || !canInstall() || !isPhone()) return;
+  const later = Number(store.get(INSTALL.laterKey) || 0);
+  if (Date.now() - later < INSTALL.laterDays * 864e5) return;
+  INSTALL.shown = true;
+  setTimeout(() => { if ($('#modal').hidden) showInstall(); }, 3500);
+}
+
+function installSteps() {
+  const share = '<svg viewBox="0 0 24 24" class="i-inline" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M12 3v12M7 8l5-5 5 5M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/></svg>';
+  if (isIOS()) return `<ol class="install-steps"><li>Toca ${share} <b>Compartir</b> en la barra de Safari.</li><li>Elige <b>Agregar a inicio</b>.</li><li>Toca <b>Agregar</b>.</li></ol>`;
+  return '<ol class="install-steps"><li>Abre el menú <b>⋮</b> del navegador.</li><li>Elige <b>Instalar app</b> o <b>Agregar a pantalla de inicio</b>.</li></ol>';
+}
+
+function showInstall() {
+  let sheet = $('#installSheet');
+  if (!sheet) {
+    sheet = document.createElement('aside');
+    sheet.id = 'installSheet';
+    sheet.className = 'install-sheet';
+    sheet.setAttribute('role', 'dialog');
+    sheet.setAttribute('aria-labelledby', 'installTitle');
+    document.body.appendChild(sheet);
+  }
+  const direct = !!INSTALL.evt;
+  sheet.innerHTML = `<button class="install-x" data-install-close aria-label="Cerrar">×</button>
+    <div class="install-head"><img src="app/icons/icon-192.png" alt="" width="56" height="56">
+      <div><h3 id="installTitle">Lleva ${esc(cfg().nombre || 'yogacentral')} en tu celular</h3>
+      <p class="muted small">Gratis y sin ocupar espacio de tienda de apps.</p></div></div>
+    <ul class="install-perks"><li><span>⚡</span>Abre al instante</li><li><span>📶</span>Funciona con poca señal</li><li><span>🧘</span>Reserva en dos toques</li></ul>
+    ${direct ? '' : installSteps()}
+    <div class="row install-actions">${direct ? '<button class="btn btn-primary" data-install-go>Instalar</button>' : ''}
+      <button class="btn btn-ghost" data-install-later>${direct ? 'Ahora no' : 'Entendido'}</button></div>`;
+  requestAnimationFrame(() => sheet.classList.add('open'));
+  $('[data-install-close]', sheet).addEventListener('click', laterInstall);
+  $('[data-install-later]', sheet).addEventListener('click', laterInstall);
+  const go = $('[data-install-go]', sheet);
+  if (go) go.addEventListener('click', async () => {
+    const evt = INSTALL.evt;
+    if (!evt) return;
+    evt.prompt();
+    const choice = await evt.userChoice.catch(() => ({ outcome: 'dismissed' }));
+    INSTALL.evt = null;
+    if (choice.outcome !== 'accepted') store.set(INSTALL.laterKey, String(Date.now()));
+    hideInstall();
+    renderNav();
+  });
+}
+
+function laterInstall() {
+  store.set(INSTALL.laterKey, String(Date.now()));
+  hideInstall();
+  toast('Puedes instalarla cuando quieras desde el menú.');
+}
+
+function hideInstall() {
+  const sheet = $('#installSheet');
+  if (sheet) sheet.classList.remove('open');
+}
+
+// ---------------------------------------------------------------------------
 // Arranque
 
 document.addEventListener('click', e => {
+  if (e.target.closest('[data-install-open]')) { e.preventDefault(); showInstall(); }
   if (e.target.closest('[data-close]')) closeModal();
   // Apps Script sirve la página dentro de un marco: llamar y escribir correo se abren fuera de él.
   const contact = e.target.closest('a[href^="tel:"], a[href^="mailto:"]');
@@ -1241,19 +1380,53 @@ $('#menuBtn').addEventListener('click', () => {
 });
 window.addEventListener('hashchange', render);
 
+// Arranque inmediato con lo guardado de la visita anterior; los datos frescos llegan después
+// y solo se vuelve a dibujar si cambiaron y la persona no está llenando un formulario.
+function applyBootstrap(data) {
+  S.data = data;
+  S.user = data.user || null;
+  if (!S.user && S.token) { store.set('yc_token', null); S.token = null; }
+  store.set('yc_user', S.user ? JSON.stringify(S.user) : null);
+}
+
+function showBootError(e) {
+  $('#app').innerHTML = '<div class="wrap section center"><h2>' + (e.offline ? 'Sin conexión' : 'No pudimos cargar el sitio') + '</h2><p class="muted">' +
+    esc(e.offline ? 'Para la primera visita necesitas internet. Después el sitio abre aunque tengas poca señal.' : e.message) +
+    '</p><button class="btn btn-primary" onclick="location.reload()">Reintentar</button></div>';
+}
+
+async function refreshBootstrap() {
+  const fresh = await call('public.bootstrap');
+  const publicPart = Object.assign({}, fresh, { user: null, ahora: '' });
+  const before = JSON.stringify(Object.assign({}, S.data || {}, { user: null, ahora: '' }));
+  saved.set('yc_boot', publicPart);
+  const changed = JSON.stringify(publicPart) !== before || JSON.stringify(fresh.user) !== JSON.stringify(S.user);
+  applyBootstrap(fresh);
+  return changed;
+}
+
 (async function start() {
   S.token = store.get('yc_token');
-  try {
-    S.data = await call('public.bootstrap');
-  } catch (e) {
-    $('#app').innerHTML = '<div class="wrap section center"><h2>No pudimos cargar el sitio</h2><p class="muted">' + esc(e.message) + '</p><button class="btn btn-primary" onclick="location.reload()">Reintentar</button></div>';
-    return;
-  }
-  S.user = S.data.user;
-  if (!S.user) store.set('yc_token', null), S.token = null;
   initPlayer();
-  renderChrome();
-  renderNav();
-  render();
+  const hit = saved.get('yc_boot');
+  if (hit) {
+    let user = null;
+    try { user = JSON.parse(store.get('yc_user') || 'null'); } catch (e) { user = null; }
+    applyBootstrap(Object.assign({}, hit.v, { user: S.token ? user : null }));
+    renderChrome(); renderNav(); render();
+  }
+  try {
+    const changed = await refreshBootstrap();
+    const typing = document.activeElement && document.activeElement.closest && document.activeElement.closest('form');
+    if (!hit || (changed && $('#modal').hidden && !typing)) { renderChrome(); renderNav(); render(); }
+    else { renderChrome(); renderNav(); }
+  } catch (e) {
+    if (!hit) return showBootError(e);
+    if (e.offline) setOffline(true, hit.t);
+  }
+  initInstall();
 })();
+
+window.addEventListener('online', () => { setOffline(false); refreshBootstrap().then(changed => { if (changed && $('#modal').hidden) { renderChrome(); renderNav(); render(); } }).catch(() => null); });
+window.addEventListener('offline', () => setOffline(true));
 </script>

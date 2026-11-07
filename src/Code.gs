@@ -70,8 +70,23 @@ function include(name) {
   return HtmlService.createHtmlOutputFromFile(name).getContent();
 }
 
-/** Punto único que llama el cliente con google.script.run.api(action, payload, token). */
+/**
+ * API JSON para el sitio en GitHub Pages: fetch POST con cuerpo text/plain
+ * {"action","payload","token"} (text/plain evita la verificación CORS previa).
+ */
+function doPost(e) {
+  let req;
+  try { req = JSON.parse(e.postData.contents); } catch (err) { return json_({ ok: false, error: 'Solicitud no válida.' }); }
+  return json_(api(String(req.action || ''), req.payload, req.token));
+}
+
+function json_(obj) {
+  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
+}
+
+/** Punto único: google.script.run.api(...) desde HtmlService o doPost desde GitHub Pages. */
 function api(action, payload, token) {
+  resetRequestCache_();
   try {
     const route = ROUTES[action];
     if (!route) throw userError_('Acción desconocida.');
@@ -191,15 +206,38 @@ function setup() {
 // ---------------------------------------------------------------------------
 // Acceso a la hoja
 
+// Caché por consulta: la hoja se abre una vez y cada tabla se lee una vez; toda escritura
+// la invalida. api() la reinicia al empezar, así nunca sobrevive entre consultas.
+let DB_ = null;
+const SHEETS_ = {};
+const ROWS_ = {};
+function resetRequestCache_() {
+  DB_ = null;
+  Object.keys(SHEETS_).forEach(k => delete SHEETS_[k]);
+  Object.keys(ROWS_).forEach(k => delete ROWS_[k]);
+}
+
+// Lo que ve cualquier visitante se guarda en CacheService unos minutos; se borra al editarlo.
+const PUBLIC_TABLES = ['Config', 'Instructores', 'Clases', 'Horario', 'Paquetes', 'Videos', 'Galeria', 'Musica'];
+const PUBLIC_CACHE_KEY = 'pub_v1';
+function touched_(name) {
+  delete ROWS_[name];
+  if (PUBLIC_TABLES.indexOf(name) >= 0) cache_().remove(PUBLIC_CACHE_KEY);
+}
+
 function db_() {
+  if (DB_) return DB_;
   const id = PropertiesService.getScriptProperties().getProperty('DB_ID');
   if (!id) throw userError_('El sitio aún no está instalado (ejecuta setup).');
-  return SpreadsheetApp.openById(id);
+  DB_ = SpreadsheetApp.openById(id);
+  return DB_;
 }
 
 function sheet_(name) {
+  if (SHEETS_[name]) return SHEETS_[name];
   const sh = db_().getSheetByName(name);
   if (!sh) throw userError_('Falta la tabla ' + name + ' (ejecuta setup).');
+  SHEETS_[name] = sh;
   return sh;
 }
 
@@ -218,13 +256,17 @@ function serialize_(v) {
 }
 
 function rows_(name) {
-  const values = sheet_(name).getDataRange().getValues();
-  const head = values.shift() || [];
-  return values.filter(r => r[0] !== '').map(r => {
-    const o = {};
-    head.forEach((k, i) => { o[k] = parse_(k, r[i]); });
-    return o;
-  });
+  if (!ROWS_[name]) {
+    const values = sheet_(name).getDataRange().getValues();
+    const head = values.shift() || [];
+    ROWS_[name] = values.filter(r => r[0] !== '').map(r => {
+      const o = {};
+      head.forEach((k, i) => { o[k] = parse_(k, r[i]); });
+      return o;
+    });
+  }
+  // Copias: quien llama puede modificar los objetos sin tocar la caché.
+  return ROWS_[name].map(r => Object.assign({}, r));
 }
 
 function getById_(name, id) {
@@ -243,6 +285,7 @@ function insert_(name, obj, sh) {
   sh = sh || sheet_(name);
   // Se escribe según el encabezado real de la hoja, por si sus columnas están en otro orden.
   sh.appendRow(headerOf_(sh).map(k => serialize_(row[k])));
+  touched_(name);
   return row;
 }
 
@@ -256,6 +299,7 @@ function update_(name, id, patch) {
       head.forEach((k, j) => { current[k] = parse_(k, values[i][j]); });
       const next = Object.assign(current, patch, { [head[0]]: current[head[0]] });
       sh.getRange(i + 1, 1, 1, head.length).setValues([head.map(k => serialize_(next[k]))]);
+      touched_(name);
       return next;
     }
   }
@@ -266,7 +310,7 @@ function remove_(name, id) {
   const sh = sheet_(name);
   const values = sh.getDataRange().getValues();
   for (let i = values.length - 1; i >= 1; i--) {
-    if (String(values[i][0]) === String(id)) { sh.deleteRow(i + 1); return true; }
+    if (String(values[i][0]) === String(id)) { sh.deleteRow(i + 1); touched_(name); return true; }
   }
   throw userError_('No se encontró el registro.');
 }
@@ -412,6 +456,23 @@ function changePassword_(u, p) {
 // Público
 
 function bootstrap_(user) {
+  return Object.assign(publicData_(), {
+    user: user ? publicUser_(user) : null,
+    hoy: today_(),
+    ahora: nowStamp_(),
+  });
+}
+
+function publicData_() {
+  const hit = cache_().get(PUBLIC_CACHE_KEY);
+  if (hit) return JSON.parse(hit);
+  const data = buildPublicData_();
+  // CacheService guarda hasta 100 KB por clave; si no cabe, solo se pierde la aceleración.
+  try { cache_().put(PUBLIC_CACHE_KEY, JSON.stringify(data), 600); } catch (e) { console.warn('Datos públicos sin caché: ' + e); }
+  return data;
+}
+
+function buildPublicData_() {
   const cfg = readConfig_();
   const publicCfg = {};
   PUBLIC_CONFIG.forEach(k => { publicCfg[k] = cfg[k] || ''; });
@@ -430,9 +491,6 @@ function bootstrap_(user) {
     videos: rows_('Videos').filter(r => r.activo).map(v => v.acceso === 'publico' ? v : Object.assign({}, v, { url: '' })),
     galeria: rows_('Galeria').filter(r => r.activo && r.imagen).sort(byOrder),
     musica: rows_('Musica').filter(r => r.activo && r.audio).sort(byOrder),
-    user: user ? publicUser_(user) : null,
-    hoy: today_(),
-    ahora: nowStamp_(),
   };
 }
 

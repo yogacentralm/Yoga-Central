@@ -2,29 +2,91 @@
 <html lang="es">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>yogacentral · Yoga, meditación y sonoterapia en Torreón</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Clases de yoga, meditación y sonoterapia en el centro de Torreón. Reserva en línea y prueba tu primera clase gratis.">
+  <title>yogacentral · Yoga, meditación y sonoterapia en Torreón</title>
   <meta name="theme-color" content="#FCFCFC">
-  <!-- Vista previa al compartir la liga (WhatsApp, Facebook) -->
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" type="image/png" sizes="192x192" href="app/icons/icon-192.png">
+  <link rel="apple-touch-icon" href="app/icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="yogacentral">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="yogacentral">
   <meta property="og:title" content="yogacentral · Yoga en Torreón">
   <meta property="og:description" content="Yoga, meditación y sonoterapia en el centro de Torreón. Tu primera clase es gratis.">
   <meta property="og:url" content="https://yogacentralm.github.io/Yoga-Central/">
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Ccircle cx='20' cy='20' r='18' fill='none' stroke='%2300F0B5' stroke-width='2'/%3E%3Cpath d='M20 9c4 5 4 10 0 15-4-5-4-10 0-15z' fill='%2300F0B5'/%3E%3C/svg%3E">
-  <style>
-    html, body { margin: 0; height: 100%; background: #FCFCFC; }
-    iframe { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; }
-    .fallback { position: fixed; inset: auto 0 0 0; padding: 10px 16px; text-align: center; font: 14px system-ui, sans-serif; color: #4A5565; }
-    .fallback a { color: #4E7A27; }
-  </style>
+  <meta property="og:image" content="https://yogacentralm.github.io/Yoga-Central/app/icons/icon-512.png">
+  <link rel="preconnect" href="https://script.google.com">
+  <link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="app/styles.css?v=6eb68c42a6">
 </head>
 <body>
-  <!-- El sitio vive en Google Apps Script; esta página solo da una dirección corta. -->
-  <iframe src="https://script.google.com/macros/s/AKfycbxAhzC4IYx1tq9GcATo1CWdTlhL7lHalcmgR0O2h1NqqioJNHMUPdQTb3x3fyw7qNoWmQ/exec"
-          title="yogacentral" allow="clipboard-write; autoplay; fullscreen"></iframe>
-  <noscript><p class="fallback">Abre el sitio en
-    <a href="https://script.google.com/macros/s/AKfycbxAhzC4IYx1tq9GcATo1CWdTlhL7lHalcmgR0O2h1NqqioJNHMUPdQTb3x3fyw7qNoWmQ/exec">esta dirección</a>.</p></noscript>
+  <header class="topbar">
+    <div class="wrap topbar-in">
+      <a class="brand" href="#/" aria-label="Inicio">
+        <svg viewBox="0 0 40 40" class="logo" aria-hidden="true">
+          <circle cx="20" cy="20" r="18" fill="none" stroke="currentColor" stroke-width="1.6"/>
+          <path d="M20 9c4 5 4 10 0 15-4-5-4-10 0-15z" fill="currentColor" opacity=".85"/>
+          <path d="M9 22c6-1 9 1 11 6-6 1-9-1-11-6zM31 22c-6-1-9 1-11 6 6 1 9-1 11-6z" fill="currentColor" opacity=".55"/>
+        </svg>
+        <span id="brandName">yogacentral</span>
+      </a>
+      <button class="menu-btn" id="menuBtn" aria-label="Abrir menú" aria-expanded="false">
+        <span></span><span></span><span></span>
+      </button>
+      <nav class="nav" id="nav">
+        <a href="#/horarios">Horarios</a>
+        <a href="#/paquetes">Paquetes</a>
+        <a href="#/instructores">Instructores</a>
+        <a href="#/videos">Videoteca</a>
+        <span id="navAuth"></span>
+      </nav>
+    </div>
+  </header>
+
+  <div id="offline" class="offline" role="status" hidden>Sin conexión</div>
+
+  <div id="pageBg" class="page-bg" aria-hidden="true" hidden></div>
+
+  <main id="app" class="app" tabindex="-1">
+    <div class="loading"><div class="spinner"></div><p>Cargando…</p></div>
+  </main>
+
+  <section id="gallery"></section>
+
+  <footer class="footer" id="footer"></footer>
+
+  <div class="player" id="player" hidden>
+    <button class="pbtn" id="plPlay" aria-label="Reproducir música">▶</button>
+    <span class="pnote" aria-hidden="true"></span>
+    <div class="pinfo"><b id="plTitle"></b><small id="plSub">Música de fondo</small></div>
+    <button class="pbtn alt" id="plNext" aria-label="Siguiente canción" hidden>⏭</button>
+    <button class="pbtn alt" id="plClose" aria-label="Ocultar reproductor">✕</button>
+  </div>
+  <audio id="plAudio" preload="none"></audio>
+
+  <a id="waFloat" class="wa-float" target="_blank" rel="noopener" aria-label="Escríbenos por WhatsApp" hidden>
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2zm0 18.2a8.2 8.2 0 0 1-4.2-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.6.1l-.8 1c-.1.2-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.2-.4.3-.4.8-1.3.1-.2 0-.3 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3 3 3 0 0 0-.9 2.2c0 1.3.9 2.5 1 2.7.1.2 1.8 2.8 4.4 3.9 1.6.7 2.3.8 3.1.6.5-.1 1.5-.6 1.7-1.2.2-.6.2-1.1.2-1.2-.1-.1-.3-.2-.5-.3z"/></svg>
+  </a>
+
+  <div class="modal" id="modal" hidden>
+    <div class="modal-back" data-close></div>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <button class="modal-x" data-close aria-label="Cerrar">×</button>
+      <h2 id="modalTitle"></h2>
+      <div id="modalBody"></div>
+    </div>
+  </div>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script>window.YC_API = "https://script.google.com/macros/s/AKfycbxAhzC4IYx1tq9GcATo1CWdTlhL7lHalcmgR0O2h1NqqioJNHMUPdQTb3x3fyw7qNoWmQ/exec";</script>
+  <script src="app/app.js?v=6eb68c42a6" defer></script>
+  <script>if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(e => console.warn('Sin modo sin conexión:', e.message));</script>
 </body>
 </html>

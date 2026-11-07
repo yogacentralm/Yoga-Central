@@ -170,7 +170,38 @@ function renderIndex() {
     .replace(/<\?!=\s*include\('(\w+)'\);?\s*\?>/g, (_, n) => (n === 'App' ? shim : '') + read(n));
 }
 
+// Versión de GitHub Pages: se genera en dev/.site y llama a /__api como si fuera doPost.
+const SITE_DIR = path.join(__dirname, '.site');
+const { build } = require('./build');
+build({ out: SITE_DIR, api: 'http://localhost:' + PORT + '/__api' });
+const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
+  '.png': 'image/png', '.webmanifest': 'application/manifest+json' };
+const localUrls = s => s.split('https://lh3.googleusercontent.com/d/').join('http://localhost:' + PORT + '/__files/');
+
 http.createServer((req, res) => {
+  if (req.method === 'POST' && req.url === '/__api') {
+    let body = '';
+    req.on('data', c => { body += c; });
+    req.on('end', () => {
+      let out;
+      try {
+        const r = JSON.parse(body);
+        out = context.__api(String(r.action || ''), r.payload, r.token);
+      } catch (e) { out = { ok: false, error: 'Solicitud no válida.' }; }
+      save();
+      // Igual que Apps Script: respuesta JSON que cualquier origen puede leer.
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(localUrls(JSON.stringify(out)));
+    });
+    return;
+  }
+  if (req.url === '/site' || req.url.startsWith('/site/')) {
+    const rel = decodeURIComponent(req.url.replace(/^\/site\/?/, '').split('?')[0]) || 'index.html';
+    const file = path.join(SITE_DIR, rel);
+    if (!file.startsWith(SITE_DIR) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) { res.writeHead(404); return res.end(); }
+    res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-cache' });
+    return res.end(fs.readFileSync(file));
+  }
   if (req.method === 'POST' && req.url === '/__rpc') {
     let body = '';
     req.on('data', c => { body += c; });
@@ -181,7 +212,7 @@ http.createServer((req, res) => {
       save();
       res.writeHead(200, { 'Content-Type': 'application/json' });
       // Las imágenes "de Drive" se sirven desde dev/.uploads para poder verlas en local.
-      res.end(JSON.stringify(out).split('https://lh3.googleusercontent.com/d/').join('http://localhost:' + PORT + '/__files/'));
+      res.end(localUrls(JSON.stringify(out)));
     });
     return;
   }
@@ -198,4 +229,7 @@ http.createServer((req, res) => {
   }
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(renderIndex());
-}).listen(PORT, () => console.log('yogacentral dev en http://localhost:' + PORT + '  (admin: ' + DEV_ADMIN + ')'));
+}).listen(PORT, () => {
+  console.log('yogacentral dev en http://localhost:' + PORT + '  (versión Apps Script, admin: ' + DEV_ADMIN + ')');
+  console.log('versión GitHub Pages (rápida e instalable) en http://localhost:' + PORT + '/site/');
+});
