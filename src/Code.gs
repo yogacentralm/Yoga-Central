@@ -403,7 +403,7 @@ function requireUser_(token, role) {
 
 function register_(p) {
   const nombre = clean_(p.nombre, 80);
-  const email = clean_(p.email, 120).toLowerCase();
+  const email = clean_(p.email, 120).replace(/\s+/g, '').toLowerCase();
   const telefono = clean_(p.telefono, 30);
   const password = String(p.password || '');
   if (nombre.length < 2) throw userError_('Escribe tu nombre.');
@@ -425,13 +425,17 @@ function register_(p) {
 }
 
 function login_(p) {
-  const email = clean_(p.email, 120).toLowerCase();
+  // Los teclados del celular a veces agregan espacios o mayúsculas al correo.
+  const email = clean_(p.email, 120).replace(/\s+/g, '').toLowerCase();
   const tries = Number(cache_().get('fail_' + email) || 0);
-  if (tries >= 8) throw userError_('Demasiados intentos. Espera 15 minutos.');
+  if (tries >= 8) throw userError_('Demasiados intentos fallidos. Por seguridad espera 15 minutos e intenta de nuevo.');
   const u = rows_('Usuarios').find(r => r.email === email);
   if (!u || u.hash !== hash_(String(p.password || ''), u.salt)) {
     cache_().put('fail_' + email, String(tries + 1), 900);
-    throw userError_('Correo o contraseña incorrectos.');
+    const left = 8 - (tries + 1);
+    throw userError_('Correo o contraseña incorrectos.' + (left <= 4
+      ? (left > 0 ? ' Te quedan ' + left + ' intento' + (left === 1 ? '' : 's') + ' antes de una pausa de 15 minutos.' : ' Por seguridad espera 15 minutos.')
+      : ' Toca el ojo para revisar lo que escribiste.'));
   }
   if (!u.activo) throw userError_('Tu cuenta está desactivada. Contacta al estudio.');
   cache_().remove('fail_' + email);

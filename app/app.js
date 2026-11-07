@@ -183,6 +183,29 @@ function formData(form) {
   return o;
 }
 
+// Correo y contraseña: el teclado del celular no debe poner mayúsculas ni corregir palabras.
+const NO_AUTOFIX = 'autocapitalize="none" autocorrect="off" spellcheck="false"';
+
+// Campo de contraseña con botón de ojo para mostrarla u ocultarla.
+const EYE_OPEN = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/></svg>';
+const EYE_OFF = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M3 3l18 18M10.6 5.1A10.8 10.8 0 0 1 12 5c6.4 0 10 7 10 7a17 17 0 0 1-3.2 4.1M6.6 6.6C3.9 8.3 2 12 2 12s3.6 7 10 7a9.8 9.8 0 0 0 5.4-1.6M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>';
+function pwdInput(name, attrs) {
+  return `<span class="pwd"><input type="password" name="${name}" ${attrs} ${NO_AUTOFIX}>` +
+    `<button type="button" class="pwd-eye" data-eye aria-label="Mostrar contraseña" aria-pressed="false">${EYE_OPEN}</button></span>`;
+}
+document.addEventListener('click', e => {
+  const btn = e.target.closest('[data-eye]');
+  if (!btn) return;
+  e.preventDefault();
+  const input = btn.parentNode.querySelector('input');
+  const show = input.type === 'password';
+  input.type = show ? 'text' : 'password';
+  btn.innerHTML = show ? EYE_OFF : EYE_OPEN;
+  btn.setAttribute('aria-label', show ? 'Ocultar contraseña' : 'Mostrar contraseña');
+  btn.setAttribute('aria-pressed', String(show));
+  input.focus();
+});
+
 function setSession(session) {
   // Al salir se borra lo guardado de esa cuenta en el celular.
   if (!session && S.user) store.set('yc_dash_' + S.user.id, null);
@@ -323,6 +346,8 @@ async function render() {
   const key = ROUTES[name] ? routeKey(name) : 'inicio';
   renderDesign(key);
   updatePlayer(key);
+  if (!onInvitePage()) hideInstall();
+  else if (S.data) maybeInviteInstall();
   try {
     await page(app, sub);
   } catch (e) {
@@ -728,9 +753,9 @@ function pageAuth(mode, app) {
     <p class="muted">${reg ? 'Reserva clases, compra paquetes y consulta tu saldo.' : 'Entra para reservar y ver tus paquetes.'}</p>
     <form id="authForm">
       ${reg ? '<label><span>Nombre completo</span><input name="nombre" required autocomplete="name"></label>' : ''}
-      <label><span>Correo</span><input name="email" type="email" required autocomplete="email"></label>
+      <label><span>Correo</span><input name="email" type="email" required autocomplete="email" ${NO_AUTOFIX} inputmode="email"></label>
       ${reg ? '<label><span>WhatsApp / teléfono</span><input name="telefono" type="tel" autocomplete="tel" placeholder="10 dígitos"></label>' : ''}
-      <label><span>Contraseña</span><input name="password" type="password" required minlength="${reg ? 8 : 1}" autocomplete="${reg ? 'new-password' : 'current-password'}"></label>
+      <label><span>Contraseña</span>${pwdInput('password', `required minlength="${reg ? 8 : 1}" autocomplete="${reg ? 'new-password' : 'current-password'}"`)}</label>
       ${reg ? '<label class="check"><input type="checkbox" name="acepto" required> Acepto los <a href="#/terminos" target="_blank">términos</a></label>' : ''}
       <button class="btn btn-primary btn-block" type="submit">${reg ? 'Crear cuenta' : 'Entrar'}</button>
     </form>
@@ -813,8 +838,8 @@ async function pageMember(app, tab) {
         <label><span>Correo</span><input value="${esc(d.user.email)}" disabled></label>
         <button class="btn btn-primary" type="submit">Guardar</button></form>
       <form class="card" id="passForm"><h3>Cambiar contraseña</h3>
-        <label><span>Contraseña actual</span><input type="password" name="actual" required autocomplete="current-password"></label>
-        <label><span>Nueva contraseña</span><input type="password" name="nueva" minlength="8" required autocomplete="new-password"></label>
+        <label><span>Contraseña actual</span>${pwdInput('actual', 'required autocomplete="current-password"')}</label>
+        <label><span>Nueva contraseña</span>${pwdInput('nueva', 'minlength="8" required autocomplete="new-password"')}</label>
         <button class="btn btn-primary" type="submit">Actualizar</button></form>
     </div>
     <p style="margin-top:24px"><button class="btn btn-ghost" id="logout">Cerrar sesión</button></p>`;
@@ -1308,13 +1333,28 @@ function initInstall() {
   maybeInviteInstall();
 }
 
+// Solo se invita en páginas para ver; nunca en iniciar sesión, crear cuenta ni paneles,
+// donde la tarjeta taparía el botón del formulario en pantallas chicas.
+const INVITE_PAGES = ['inicio', 'horarios', 'paquetes', 'instructores', 'videos'];
+const onInvitePage = () => INVITE_PAGES.indexOf(routeKey(currentRoute()[0]) || '') >= 0;
+const typingNow = () => !!(document.activeElement && document.activeElement.matches && document.activeElement.matches('input, textarea, select'));
+
 function maybeInviteInstall() {
-  if (INSTALL.shown || !canInstall() || !isPhone()) return;
+  if (INSTALL.shown || !canInstall() || !isPhone() || !onInvitePage()) return;
   const later = Number(store.get(INSTALL.laterKey) || 0);
   if (Date.now() - later < INSTALL.laterDays * 864e5) return;
   INSTALL.shown = true;
-  setTimeout(() => { if ($('#modal').hidden) showInstall(); }, 3500);
+  setTimeout(() => {
+    // Si al llegar el momento la persona está en otra página o escribiendo, se intenta después.
+    if (!$('#modal').hidden || typingNow() || !onInvitePage()) { INSTALL.shown = false; return; }
+    showInstall();
+  }, 3500);
 }
+
+// Al escribir en un formulario o cambiar a una página que no es para ver, la tarjeta se quita.
+document.addEventListener('focusin', e => {
+  if (e.target.matches && e.target.matches('input, textarea, select') && !e.target.closest('#installSheet')) hideInstall();
+});
 
 function installSteps() {
   const share = '<svg viewBox="0 0 24 24" class="i-inline" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M12 3v12M7 8l5-5 5 5M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/></svg>';
