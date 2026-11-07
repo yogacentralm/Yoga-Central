@@ -19,12 +19,13 @@
   <meta property="og:description" content="Yoga, meditación y sonoterapia en el centro de Torreón. Tu primera clase es gratis.">
   <meta property="og:url" content="https://yogacentralm.github.io/Yoga-Central/">
   <meta property="og:image" content="https://yogacentralm.github.io/Yoga-Central/app/icons/icon-512.png">
+  <script>addEventListener('beforeinstallprompt', e => { e.preventDefault(); window.__ycInstall = e; });</script>
   <link rel="preconnect" href="https://script.google.com">
   <link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="app/styles.css?v=6eb68c42a6">
+  <link rel="stylesheet" href="app/styles.css?v=d2d999ebf6">
 </head>
 <body>
   <header class="topbar">
@@ -37,6 +38,10 @@
         </svg>
         <span id="brandName">yogacentral</span>
       </a>
+      <button class="install-top" id="installTop" data-install-open hidden aria-label="Instalar la app">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" d="M12 4v11m0 0-4-4m4 4 4-4M5 19h14"/></svg>
+        <span>Instalar</span>
+      </button>
       <button class="menu-btn" id="menuBtn" aria-label="Abrir menú" aria-expanded="false">
         <span></span><span></span><span></span>
       </button>
@@ -86,7 +91,7 @@
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
   <script>window.YC_API = "https://script.google.com/macros/s/AKfycbxAhzC4IYx1tq9GcATo1CWdTlhL7lHalcmgR0O2h1NqqioJNHMUPdQTb3x3fyw7qNoWmQ/exec";</script>
-  <script src="app/app.js?v=6eb68c42a6" defer></script>
+  <script src="app/app.js?v=d2d999ebf6" defer></script>
   <script>if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(e => console.warn('Sin modo sin conexión:', e.message));</script>
 </body>
 </html>

@@ -218,7 +218,14 @@ tr:last-child td { border-bottom: 0; }
 .install-actions { margin-top: 14px; }
 .install-actions .btn { flex: 1; }
 .install-x { position: absolute; top: 8px; right: 12px; border: 0; background: none; font-size: 1.5rem; color: var(--muted); cursor: pointer; }
-.nav-install { color: var(--brand-text) !important; }
+/* Botón Instalar en la barra, junto al menú */
+.install-top { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 14px 0 11px;
+  border-radius: 999px; border: 1px solid color-mix(in srgb, var(--brand) 35%, transparent); background: var(--brand-soft);
+  color: var(--brand-text); font: 600 .85rem var(--sans); cursor: pointer; white-space: nowrap; }
+.install-top svg { width: 18px; height: 18px; }
+.install-top[hidden] { display: none; }
+.install-top:not([hidden]) + .menu-btn { margin-left: 6px; }
+@media (min-width: 821px) { .install-top { order: 3; margin-left: 10px; } }
 
 /* Datos de pago */
 .paydata { display: grid; grid-template-columns: auto 1fr; gap: 8px 14px; margin: 10px 0 0; align-items: center; }

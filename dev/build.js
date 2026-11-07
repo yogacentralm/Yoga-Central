@@ -54,6 +54,7 @@ function build(opts) {
   <meta property="og:description" content="Yoga, meditación y sonoterapia en el centro de Torreón. Tu primera clase es gratis.">
   <meta property="og:url" content="${SITE_URL}">
   <meta property="og:image" content="${SITE_URL}app/icons/icon-512.png">
+  <script>addEventListener('beforeinstallprompt', e => { e.preventDefault(); window.__ycInstall = e; });</script>
   <link rel="preconnect" href="https://script.google.com">
   <link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>`;
   const index = read('Index.html')

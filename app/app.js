@@ -333,8 +333,9 @@ async function render() {
 
 function renderNav() {
   const u = S.user;
-  const install = canInstall() ? '<a href="#" class="nav-install" data-install-open>📲 Instalar app</a>' : '';
-  $('#navAuth').innerHTML = install + (!u
+  // El botón de instalar vive en la barra, fuera del menú, para que siempre se vea.
+  $('#installTop').hidden = !canInstall();
+  $('#navAuth').innerHTML = (!u
     ? '<a href="#/entrar">Iniciar sesión</a><a class="btn btn-primary btn-sm" href="#/registro">Crear cuenta</a>'
     : (u.rol === 'admin' ? '<a href="#/admin">Administrar</a>' : '') + (u.rol === 'instructor' ? '<a href="#/instructor">Mis clases</a>' : '')
       + '<a class="btn btn-primary btn-sm" href="#/panel">Mi cuenta</a>');
@@ -1277,9 +1278,12 @@ async function pageAdmin(app, tab) {
 // ---------------------------------------------------------------------------
 // Instalar como app (solo en GitHub Pages, que tiene manifiesto y service worker).
 // En celular se invita una vez, a los pocos segundos; "Ahora no" la pospone 7 días y
-// la opción sigue en el menú.
+// el botón "Instalar" sigue en la barra, junto al menú. Chrome no siempre avisa que se
+// puede instalar (lo hace tras un rato de uso), así que la tarjeta no depende de ese
+// aviso: si llega, ofrece el botón directo; si no, muestra los pasos del navegador.
+// index.html guarda el aviso en window.__ycInstall por si llega antes que este script.
 
-const INSTALL = { evt: null, shown: false, laterKey: 'yc_install_later', laterDays: 7 };
+const INSTALL = { evt: window.__ycInstall || null, shown: false, laterKey: 'yc_install_later', laterDays: 7 };
 const isStandalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
 const isPhone = () => matchMedia('(pointer: coarse)').matches && Math.min(screen.width, screen.height) < 820;
 const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
@@ -1288,7 +1292,10 @@ const canInstall = () => !!API_URL && !isStandalone() && (!!INSTALL.evt || isPho
 window.addEventListener('beforeinstallprompt', e => {
   e.preventDefault(); // se usa nuestra invitación en lugar de la barra del navegador
   INSTALL.evt = e;
-  if (S.data) { renderNav(); maybeInviteInstall(); }
+  if (!S.data) return;
+  renderNav();
+  // Si la tarjeta ya está abierta con instrucciones, se cambia por el botón directo.
+  if ($('#installSheet.open')) showInstall(); else maybeInviteInstall();
 });
 window.addEventListener('appinstalled', () => {
   INSTALL.evt = null;
@@ -1298,8 +1305,7 @@ window.addEventListener('appinstalled', () => {
 });
 
 function initInstall() {
-  // iPhone no avisa cuando se puede instalar: se invita con instrucciones.
-  if (isIOS()) maybeInviteInstall();
+  maybeInviteInstall();
 }
 
 function maybeInviteInstall() {
@@ -1312,8 +1318,11 @@ function maybeInviteInstall() {
 
 function installSteps() {
   const share = '<svg viewBox="0 0 24 24" class="i-inline" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M12 3v12M7 8l5-5 5 5M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/></svg>';
+  const ua = navigator.userAgent;
   if (isIOS()) return `<ol class="install-steps"><li>Toca ${share} <b>Compartir</b> en la barra de Safari.</li><li>Elige <b>Agregar a inicio</b>.</li><li>Toca <b>Agregar</b>.</li></ol>`;
-  return '<ol class="install-steps"><li>Abre el menú <b>⋮</b> del navegador.</li><li>Elige <b>Instalar app</b> o <b>Agregar a pantalla de inicio</b>.</li></ol>';
+  if (/SamsungBrowser/i.test(ua)) return '<ol class="install-steps"><li>Toca el menú <b>≡</b> abajo a la derecha.</li><li>Elige <b>Agregar página a</b> → <b>Pantalla de inicio</b>.</li></ol>';
+  if (/Firefox/i.test(ua)) return '<ol class="install-steps"><li>Toca el menú <b>⋮</b>.</li><li>Elige <b>Instalar</b>.</li></ol>';
+  return '<ol class="install-steps"><li>Toca el menú <b>⋮</b> arriba a la derecha del navegador.</li><li>Elige <b>Instalar app</b> o <b>Agregar a la pantalla principal</b>.</li></ol>';
 }
 
 function showInstall() {
@@ -1354,7 +1363,7 @@ function showInstall() {
 function laterInstall() {
   store.set(INSTALL.laterKey, String(Date.now()));
   hideInstall();
-  toast('Puedes instalarla cuando quieras desde el menú.');
+  toast('Puedes instalarla cuando quieras con el botón Instalar de arriba.');
 }
 
 function hideInstall() {
