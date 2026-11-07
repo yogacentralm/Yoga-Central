@@ -64,6 +64,42 @@ clasp push
 ```
 Después sigue los pasos 4 a 6 de la opción A.
 
+### Cómo se reparte el sitio
+| Dónde | Qué hace | Dirección |
+|---|---|---|
+| **GitHub Pages** (principal) | Página rápida e instalable: HTML, CSS y JS generados por `dev/build.js` a partir de `src/`. Funciona sin internet con lo último guardado. | https://yogacentralm.github.io/Yoga-Central/ |
+| **Apps Script** | Datos y lógica: la API JSON (`doPost`) que usa GitHub Pages y, de respaldo, la misma página servida por Google (`doGet`). | La URL `/exec` |
+
+**Velocidad:**
+- **Visitas siguientes a la primera:** el sitio abre desde el celular en menos de medio segundo, aun sin señal. Muestra la información guardada y se actualiza por detrás.
+- **Servidor:** la hoja se abre una sola vez por consulta y la información pública queda guardada 10 minutos en CacheService. Esa copia se borra al editar cualquier dato desde el panel.
+
+**Instalar como app:**
+- **En celular**, a los pocos segundos de entrar aparece una tarjeta de invitación, una sola vez. *Ahora no* la pospone 7 días.
+- **Desde el menú**, la opción **📲 Instalar app** siempre está disponible mientras no esté instalada.
+- **En iPhone**, la tarjeta explica los pasos (Compartir → Agregar a inicio).
+
+### Publicar cambios
+1. Ejecuta el verificador. Si dice *ERROR*, no publiques:
+   ```bash
+   node dev/check.js
+   ```
+2. Sube el código a Apps Script:
+   ```bash
+   clasp push -f
+   ```
+3. Actualiza la implementación. La URL no cambia:
+   ```bash
+   clasp create-deployment -i AKfycbxAhzC4IYx1tq9GcATo1CWdTlhL7lHalcmgR0O2h1NqqioJNHMUPdQTb3x3fyw7qNoWmQ --description "cambio"
+   ```
+4. Regenera el sitio de GitHub Pages:
+   ```bash
+   node dev/build.js
+   ```
+5. Haz commit y `git push`. GitHub Pages se actualiza en uno o dos minutos. Los celulares que ya lo tienen guardado reciben la versión nueva la siguiente vez que abran el sitio.
+
+Para probar en local la versión de GitHub Pages, arranca el simulador y abre http://localhost:8787/site/.
+
 ### Regla importante al editar `App.html`
 Apps Script recorta el JavaScript antes de servirlo. Borra todo lo que sigue a `//` en cada línea, salvo que esté entre **comillas simples**, y todo lo que sigue a un barra-asterisco. En el simulador no pasa, así que:
 - Comenta solo con `//` al principio de la línea y nunca uses barra-asterisco.
