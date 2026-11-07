@@ -1,5 +1,13 @@
 <script>
 'use strict';
+// IMPORTANTE: no escribir barra-asterisco en este archivo, ni en comentarios ni en textos
+// (por ejemplo, el accept de imágenes con comodín). Apps Script lo toma como inicio de
+// comentario y recorta el script. Usa // para comentar y las listas ACCEPT de abajo.
+const ACCEPT = {
+  imagen: 'image/png,image/jpeg,image/webp,image/gif',
+  comprobante: 'image/png,image/jpeg,image/webp,image/heic,application/pdf',
+  audio: 'audio/mpeg,audio/mp4,audio/x-m4a,audio/aac,audio/ogg,audio/wav,.mp3,.m4a,.ogg,.wav',
+};
 
 // ---------------------------------------------------------------------------
 // Estado y utilidades
@@ -22,7 +30,7 @@ const S = {
 
 const store = {
   get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
-  set(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch (e) { /* sin almacenamiento */ } },
+  set(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch (e) { return; } }, // sin almacenamiento
 };
 
 function esc(v) {
@@ -95,7 +103,7 @@ function openModal(title, html) {
 }
 function closeModal() { $('#modal').hidden = true; $('#modalBody').innerHTML = ''; }
 
-/** Ejecuta una acción deshabilitando el botón y mostrando errores. */
+// Ejecuta una acción deshabilitando el botón y mostrando errores.
 async function busy(btn, fn) {
   const label = btn ? btn.innerHTML : '';
   if (btn) { btn.disabled = true; btn.innerHTML = 'Procesando…'; }
@@ -309,7 +317,7 @@ function renderChrome() {
 // ---------------------------------------------------------------------------
 // Horario: utilidades compartidas
 
-/** Clases del horario semanal para una fecha concreta. */
+// Clases del horario semanal para una fecha concreta.
 function slotsOn(ymd) {
   const d = weekday(ymd);
   return S.data.horario.filter(s => s.dia === d).sort((a, b) => a.hora < b.hora ? -1 : 1);
@@ -326,7 +334,8 @@ function nextSlots(count) {
 }
 
 async function loadOccupancy(desde, hasta) {
-  try { Object.assign(S.occ, await call('public.occupancy', { desde, hasta })); } catch (e) { /* el horario se muestra sin cupos */ }
+  // Si falla, el horario se muestra sin cupos.
+  try { Object.assign(S.occ, await call('public.occupancy', { desde, hasta })); } catch (e) { return; }
 }
 
 function slotHtml(s, fecha, opts) {
@@ -546,7 +555,7 @@ function buyFlow(paqueteId) {
     ${c.linkPago ? `<p><a class="btn btn-accent" href="${esc(c.linkPago)}" target="_blank" rel="noopener">Pagar en línea</a></p>` : ''}
     <div class="card" style="background:var(--soft);box-shadow:none"><b>Datos para pagar</b><p class="small" style="white-space:pre-line;margin:6px 0 0">${esc(c.datosPago)}</p></div>
     <form id="buyForm" style="margin-top:16px">
-      <label><span>Comprobante de pago (foto o PDF, máx. 5 MB)</span><input type="file" name="archivo" accept="image/*,application/pdf"></label>
+      <label><span>Comprobante de pago (foto o PDF, máx. 5 MB)</span><input type="file" name="archivo" accept="${ACCEPT.comprobante}"></label>
       <p class="muted small" style="margin-top:-8px">Si aún no pagas puedes subirlo después desde “Mi cuenta”.</p>
       <label><span>Nota (opcional)</span><input name="nota" maxlength="300" placeholder="Ej. pagué desde la cuenta de mi pareja"></label>
       <button class="btn btn-primary btn-block" type="submit">Enviar solicitud</button>
@@ -603,7 +612,8 @@ function embedUrl(url) {
 
 async function pageVideos(app) {
   let videos = S.data.videos;
-  if (S.user) { try { videos = await call('me.videos'); } catch (e) { /* usa la lista pública */ } }
+  // Si falla, se queda con la lista pública.
+  if (S.user) { try { videos = await call('me.videos'); } catch (e) { videos = S.data.videos; } }
   const byIdUrl = {};
   videos.forEach(v => { byIdUrl[v.id] = v.url; });
   const all = S.data.videos.map(v => Object.assign({}, v, { url: byIdUrl[v.id] || '' }));
@@ -734,7 +744,7 @@ async function pageMember(app, tab) {
     busy(b, async () => { await call('me.cancel', { reservaId: b.dataset.cancel }); toast('Reserva cancelada.'); S.occ = {}; render(); }).catch(() => {});
   }));
   $$('[data-receipt]', app).forEach(b => b.addEventListener('click', () => {
-    const body = openModal('Subir comprobante', `<form id="rcpt"><label><span>Foto o PDF (máx. 5 MB)</span><input type="file" accept="image/*,application/pdf" required></label>
+    const body = openModal('Subir comprobante', `<form id="rcpt"><label><span>Foto o PDF (máx. 5 MB)</span><input type="file" accept="${ACCEPT.comprobante}" required></label>
       <button class="btn btn-primary" type="submit">Enviar</button></form>`);
     $('#rcpt', body).addEventListener('submit', e => {
       e.preventDefault();
@@ -748,7 +758,7 @@ async function pageMember(app, tab) {
   if ($('#profileForm')) {
     $('#profileForm').addEventListener('submit', e => { e.preventDefault(); busy($('button', e.target), async () => { setSession({ token: S.token, user: await call('me.updateProfile', formData(e.target)) }); toast('Datos guardados.'); }).catch(() => {}); });
     $('#passForm').addEventListener('submit', e => { e.preventDefault(); busy($('button', e.target), async () => { await call('me.changePassword', formData(e.target)); e.target.reset(); toast('Contraseña actualizada.'); }).catch(() => {}); });
-    $('#logout').addEventListener('click', async () => { try { await call('auth.logout'); } catch (e) { /* ignora */ } setSession(null); go(''); });
+    $('#logout').addEventListener('click', async () => { await call('auth.logout').catch(() => null); setSession(null); go(''); });
   }
 }
 
@@ -917,10 +927,10 @@ function fieldHtml(f, value) {
   }
   if (f.t === 'image') return `<div class="full" style="margin-bottom:14px"><label style="margin-bottom:6px"><span>${f.l}</span><input name="${f.k}" value="${esc(v)}" placeholder="URL de la imagen"></label>
     <div class="row">${v ? `<img src="${esc(v)}" alt="" style="width:64px;height:64px;object-fit:cover;border-radius:8px">` : ''}
-    <input type="file" accept="image/*" data-upload="${f.k}" data-kind="imagen" style="max-width:280px"><small class="muted">Se guarda en tu Drive · máx. 5 MB</small></div>${hint}</div>`;
+    <input type="file" accept="${ACCEPT.imagen}" data-upload="${f.k}" data-kind="imagen" style="max-width:280px"><small class="muted">Se guarda en tu Drive · máx. 5 MB</small></div>${hint}</div>`;
   if (f.t === 'audio') return `<div class="full" style="margin-bottom:14px"><label style="margin-bottom:6px"><span>${f.l}</span><input name="${f.k}" value="${esc(v)}" placeholder="URL del audio"></label>
     <div class="row">${v ? `<audio controls preload="none" src="${esc(v)}" style="max-width:260px"></audio>` : ''}
-    <input type="file" accept="audio/*" data-upload="${f.k}" data-kind="audio" style="max-width:280px"><small class="muted">MP3, M4A u OGG · máx. 15 MB</small></div>${hint}</div>`;
+    <input type="file" accept="${ACCEPT.audio}" data-upload="${f.k}" data-kind="audio" style="max-width:280px"><small class="muted">MP3, M4A u OGG · máx. 15 MB</small></div>${hint}</div>`;
   if (f.t === 'pages') {
     const on = String(v).split(',');
     return `<div class="full" style="margin-bottom:14px"><span style="display:block;font-weight:500;font-size:.9rem;margin-bottom:6px">${f.l}</span>

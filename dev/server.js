@@ -147,6 +147,11 @@ if (!state.props.DB_ID) { context.__setup(); save(); }
 // ---------------------------------------------------------------- HTML
 function renderIndex() {
   const read = n => fs.readFileSync(path.join(SRC, n + '.html'), 'utf8');
+  // Apps Script recorta el script desde cualquier barra-asterisco: en local no pasa, así que se avisa aquí.
+  ['App', 'Index'].forEach(n => {
+    const lines = read(n).split('\n');
+    lines.forEach((l, i) => { if (/\/\*|\*\//.test(l)) console.warn(`AVISO ${n}.html:${i + 1}: barra-asterisco rompe la página en Apps Script → ${l.trim().slice(0, 80)}`); });
+  });
   const shim = `<script>
   window.google = { script: { run: (function make(ok, fail) {
     return new Proxy({}, { get(_, fn) {
