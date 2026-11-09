@@ -10,7 +10,6 @@
 'use strict';
 const fs = require('fs');
 const path = require('path');
-const zlib = require('zlib');
 const crypto = require('crypto');
 
 // URL de la aplicación web publicada (Implementar → Gestionar implementaciones).
@@ -36,7 +35,7 @@ function build(opts) {
   fs.mkdirSync(path.join(out, 'app', 'icons'), { recursive: true });
   fs.writeFileSync(path.join(out, 'app', 'styles.css'), css);
   fs.writeFileSync(path.join(out, 'app', 'app.js'), js);
-  writeIcons(path.join(out, 'app', 'icons'));
+  copyBrand(out);
 
   const head = `
   <title>yogacentral · Yoga, meditación y sonoterapia en Torreón</title>
@@ -95,7 +94,7 @@ const SHELL = 'shell-' + VERSION;
 const RUNTIME = 'runtime-v1';
 const IMAGES = 'images-v2'; // v1 pudo guardar fotos de Drive fallidas (respuestas opacas)
 const PRECACHE = ['./', './index.html', './manifest.webmanifest', './app/styles.css?v=${hash}', './app/app.js?v=${hash}',
-  './app/icons/icon-192.png', './app/icons/icon-512.png'];
+  './app/icons/icon-192.png', './app/icons/icon-512.png', './app/logo.png', './app/logo-mark.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(SHELL).then(c => c.addAll(PRECACHE)).then(() => self.skipWaiting()));
@@ -162,80 +161,14 @@ self.addEventListener('fetch', e => {
 `;
 }
 
-// ---------------------------------------------------------------- íconos
-// El logo del sitio (círculo + hoja + dos pétalos, del SVG de Index.html) dibujado en blanco
-// sobre el verde de marca, con suavizado por supermuestreo. Solo se generan si no existen.
-function writeIcons(dir) {
-  const specs = [
-    ['icon-192.png', 192, 'rounded'], ['icon-512.png', 512, 'rounded'],
-    ['maskable-512.png', 512, 'full'], ['apple-touch-icon.png', 180, 'full'],
-  ];
-  specs.forEach(([name, size, shape]) => {
-    const file = path.join(dir, name);
-    if (!fs.existsSync(file)) fs.writeFileSync(file, png(size, size, drawIcon(size, shape)));
-  });
-}
-
-function drawIcon(size, shape) {
-  const BG = [0x66, 0x9C, 0x35];
-  const ss = 4; // muestras por lado
-  const markScale = shape === 'full' ? 0.58 : 0.66; // el ícono "maskable" deja margen de seguridad
-  const u = size * markScale / 40; // el logo está dibujado en una caja de 40 unidades
-  const ox = size / 2 - 20 * u, oy = size / 2 - 20 * u;
-  const corner = size * 0.22;
-  const lens = (ax, ay, bx, by, w) => {
-    const mx = (ax + bx) / 2, my = (ay + by) / 2, h = Math.hypot(bx - ax, by - ay) / 2;
-    const R = (h * h + w * w) / (2 * w), d = R - w;
-    const nx = -(by - ay) / (2 * h), ny = (bx - ax) / (2 * h);
-    const c1 = [mx + nx * d, my + ny * d], c2 = [mx - nx * d, my - ny * d];
-    return (x, y) => Math.hypot(x - c1[0], y - c1[1]) < R && Math.hypot(x - c2[0], y - c2[1]) < R;
-  };
-  const leaf = lens(20, 9, 20, 24, 3.2);
-  const petalL = lens(9, 22, 20, 28, 2.4);
-  const petalR = lens(31, 22, 20, 28, 2.4);
-  const inBg = (x, y) => {
-    if (shape === 'full') return true;
-    const cx = Math.min(Math.max(x, corner), size - corner), cy = Math.min(Math.max(y, corner), size - corner);
-    return Math.hypot(x - cx, y - cy) <= corner;
-  };
-  const buf = Buffer.alloc(size * size * 4);
-  for (let py = 0; py < size; py++) {
-    for (let px = 0; px < size; px++) {
-      let a = 0, white = 0;
-      for (let sy = 0; sy < ss; sy++) for (let sx = 0; sx < ss; sx++) {
-        const x = px + (sx + 0.5) / ss, y = py + (sy + 0.5) / ss;
-        if (!inBg(x, y)) continue;
-        a++;
-        const lx = (x - ox) / u, ly = (y - oy) / u;
-        const ring = Math.abs(Math.hypot(lx - 20, ly - 20) - 18) < 0.9;
-        if (ring || leaf(lx, ly)) white += 1;
-        else if (petalL(lx, ly) || petalR(lx, ly)) white += 0.78;
-      }
-      const n = ss * ss, i = (py * size + px) * 4;
-      const wf = a ? white / a : 0;
-      for (let k = 0; k < 3; k++) buf[i + k] = Math.round(BG[k] * (1 - wf) + 255 * wf);
-      buf[i + 3] = Math.round(255 * a / n);
-    }
-  }
-  return buf;
-}
-
-function png(w, h, rgba) {
-  const table = [];
-  for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; table[n] = c >>> 0; }
-  const crc = b => { let c = 0xffffffff; for (const v of b) c = table[(c ^ v) & 255] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
-  const chunk = (type, data) => {
-    const len = Buffer.alloc(4); len.writeUInt32BE(data.length);
-    const td = Buffer.concat([Buffer.from(type), data]);
-    const c = Buffer.alloc(4); c.writeUInt32BE(crc(td));
-    return Buffer.concat([len, td, c]);
-  };
-  const raw = Buffer.alloc((w * 4 + 1) * h);
-  for (let y = 0; y < h; y++) rgba.copy(raw, y * (w * 4 + 1) + 1, y * w * 4, (y + 1) * w * 4);
-  const ihdr = Buffer.alloc(13);
-  ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4); ihdr[8] = 8; ihdr[9] = 6;
-  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr),
-    chunk('IDAT', zlib.deflateSync(raw, { level: 9 })), chunk('IEND', Buffer.alloc(0))]);
+// ---------------------------------------------------------------- logo e íconos
+// Son los archivos oficiales de app/ (hechos a partir del logo de YogaCentral). Si el sitio se
+// genera en otra carpeta (el simulador), se copian ahí.
+const BRAND_FILES = ['app/logo.png', 'app/logo-mark.png', 'app/icons/icon-192.png', 'app/icons/icon-512.png',
+  'app/icons/maskable-512.png', 'app/icons/apple-touch-icon.png'];
+function copyBrand(out) {
+  if (path.resolve(out) === ROOT) return;
+  BRAND_FILES.forEach(f => fs.copyFileSync(path.join(ROOT, f), path.join(out, f)));
 }
 
 module.exports = { build };

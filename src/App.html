@@ -414,7 +414,7 @@ async function render() {
   const key = ROUTES[name] ? routeKey(name) : 'inicio';
   document.body.classList.toggle('at-home', key === 'inicio');
   // En Mi cuenta el menú del sitio sobra: el panel trae su propio encabezado y menú.
-  document.body.classList.toggle('in-panel', name === 'panel');
+  document.body.classList.toggle('in-panel', name === 'panel' || name === 'admin');
   renderDesign(key);
   updatePlayer(key);
   if (!onInvitePage()) hideInstall();
@@ -540,8 +540,11 @@ function bookFlow(horarioId, fecha, after) {
 // ---------------------------------------------------------------------------
 // Páginas públicas
 
-// Logo (flor de la vida) para la portada; el de la barra está en Index.
-const LOGO_MARK = '<circle cx="20" cy="12.1" r="11.5"/><circle cx="20" cy="27.9" r="11.5"/><circle cx="12.1" cy="20" r="11.5"/><circle cx="27.9" cy="20" r="11.5"/><path d="M20 .6v11M20 28.4v11M.6 20h11M28.4 20h11"/><rect x="15.75" y="15.75" width="8.5" height="8.5" rx="1.6"/><circle cx="20" cy="20" r="1.1" fill="currentColor" stroke="none"/>';
+// Logo oficial (app/logo.png completo y app/logo-mark.png solo la flor). Servida por Apps Script
+// la página no tiene esos archivos, así que se toman de GitHub Pages.
+const LOGO_BASE = API_URL ? '' : 'https://yogacentralm.github.io/Yoga-Central/';
+const LOGO_FULL = LOGO_BASE + 'app/logo.png';
+const LOGO_FLOWER = LOGO_BASE + 'app/logo-mark.png';
 const ICON_USER = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="10" r="3"/><path d="M6.6 18.4a6.5 6.5 0 0 1 10.8 0"/></svg>';
 const ICON_LOGIN = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 17l5-5-5-5M15 12H3.5M14 3.5h4.5a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H14"/></svg>';
 
@@ -549,16 +552,12 @@ function pageHome(app) {
   const c = cfg();
   // Un fondo de "Imágenes del diseño" para Inicio tiene prioridad sobre la imagen de portada de Sitio.
   const heroImg = pageBackground('inicio') || c.heroImagen;
-  // Con foto, el logo va en la propia foto; sin foto se dibuja al centro.
+  // Con foto, el logo va en la propia foto; sin foto se pone el logo oficial al centro.
   // La descripción de Sitio: un párrafo por línea.
   const paras = String(c.descripcion || '').split(/\n+/).map(t => t.trim()).filter(Boolean);
   app.innerHTML = `
   <section class="cover ${heroImg ? 'has-img' : ''}" ${heroImg ? `style="background-image:url('${esc(heroImg)}')"` : ''}>
-    ${heroImg ? `<h1 class="sr-only">${esc(c.nombre || 'YogaCentral')}</h1>` : `<div class="cover-mark">
-      <svg viewBox="0 0 40 40" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.25">${LOGO_MARK}</svg>
-      <b>${esc(c.nombre || 'YogaCentral')}</b>
-      ${c.lema ? `<span>${esc(c.lema)}</span>` : ''}
-    </div>`}
+    ${heroImg ? `<h1 class="sr-only">${esc(c.nombre || 'YogaCentral')}</h1>` : `<img class="cover-logo" src="${LOGO_FULL}" alt="${esc(c.nombre || 'YogaCentral')}">`}
   </section>
 
   <section class="about"><div class="wrap"><div class="about-in">
@@ -837,7 +836,7 @@ async function pageMember(app, tab) {
     <div class="wrap member">
       <aside class="member-side"><h3>${esc(c.nombre || 'YogaCentral')}</h3>
         <nav>${MEMBER_MENU.map(m => `<a href="#/panel/${m[0]}" class="${m[0] === tab ? 'on' : ''}">${micon(m[2])}${m[1]}</a>`).join('')}
-          ${d.user.rol === 'admin' ? `<a href="#/admin">${micon(MI.gear)}Administrar${pendingBadge()}</a>` : ''}
+          ${d.user.rol === 'admin' ? `<a href="#/admin">${micon(MI.gear)}Administrar<span data-badge="pagos">${pendingBadge()}</span></a>` : ''}
           ${d.user.rol === 'instructor' ? `<a href="#/instructor">${micon(MI.list)}Mis clases</a>` : ''}
           <a href="#/">${micon(MI.home)}Website</a>
           <button type="button" id="logout">${micon(MI.logout)}Cerrar sesión</button></nav>
@@ -870,6 +869,18 @@ const MI = {
   filter: '<path d="M4 5h16l-6 7.5V19l-4-2v-4.5z"/>',
   gear: '<circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/>',
   prev: '<path d="M15 5l-7 7 7 7"/>',
+  users: '<circle cx="9" cy="9" r="3.2"/><path d="M3.5 19a5.5 5.5 0 0 1 11 0M16 6.5a3 3 0 0 1 0 5.6M17.5 19a5.5 5.5 0 0 0-2.3-4.4"/>',
+  image: '<rect x="3" y="4.5" width="18" height="15" rx="2"/><circle cx="8.5" cy="9.5" r="1.7"/><path d="M21 16l-5-5-8 8.5"/>',
+  music: '<path d="M9 18V5.5l11-2V16"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="17.5" cy="16" r="2.5"/>',
+  leaf: '<path d="M12 20c-4-2.5-6-6-6-10 3 .5 5 2 6 4 1-2 3-3.5 6-4 0 4-2 7.5-6 10z"/><path d="M12 20v-6"/>',
+  globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.5 3.8 5.5 3.8 9s-1.3 6.5-3.8 9c-2.5-2.5-3.8-5.5-3.8-9S9.5 5.5 12 3z"/>',
+  bell: '<path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15zM10 20a2 2 0 0 0 4 0"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  phone: '<rect x="7" y="3" width="10" height="18" rx="2"/><path d="M11 18h2"/>',
+  eye: '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/>',
+  eyeOff: '<path d="M3 3l18 18M10.6 5.6A9.6 9.6 0 0 1 12 5.5c6 0 9.5 6.5 9.5 6.5a16 16 0 0 1-3 3.7M6.5 6.9C4 8.6 2.5 12 2.5 12S6 18.5 12 18.5a9 9 0 0 0 4.4-1.1"/>',
+  sun: '<circle cx="12" cy="13" r="3.5"/><path d="M12 5v2M5 13H3M21 13h-2M6.6 7.6 8 9M17.4 7.6 16 9M4 19h16"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
   next: '<path d="M9 5l7 7-7 7"/>',
 };
 const micon = p => `<svg class="mi" viewBox="0 0 24 24" aria-hidden="true">${p}</svg>`;
@@ -931,7 +942,7 @@ async function memberCalendar(main, d) {
       </div>
       ${cal.open ? `<div class="chips"><button class="chip ${!cal.filter ? 'on' : ''}" data-f="">Todas</button>
         ${used.map(id => `<button class="chip ${cal.filter === id ? 'on' : ''}" data-f="${esc(id)}">${esc(clase(id).nombre)}</button>`).join('')}</div>` : ''}
-      <div class="cal-list">${blocks || `<div class="cal-empty"><svg viewBox="0 0 40 40" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.25">${LOGO_MARK}</svg>No hay clases que mostrar</div>`}</div>
+      <div class="cal-list">${blocks || `<div class="cal-empty"><img src="${LOGO_FLOWER}" alt="">No hay clases que mostrar</div>`}</div>
       <div class="cal-foot"><div><div>${micon(MI.home)} = Clase presencial</div><div>${micon(MI.screen)} = Clase en línea</div></div>
         <div class="cal-tz">Horario según la hora del centro de México<br><span>America/Mexico_City</span></div></div>`;
     $$('[data-mode]', main).forEach(b => b.addEventListener('click', () => { cal.mode = b.dataset.mode; if (cal.mode === 'dia' && cal.day < today) cal.day = today; refresh(); }));
@@ -1283,61 +1294,6 @@ async function refreshPublic() {
   renderChrome();
 }
 
-async function adminOverview(box) {
-  const o = await call('admin.overview');
-  box.innerHTML = `<div class="kpis">
-    <div class="kpi"><b>${o.reservasHoy}</b><span>reservas hoy</span></div>
-    <div class="kpi"><b>${o.pendientes}</b><span>pagos por validar</span></div>
-    <div class="kpi"><b>${o.alumnosActivos}</b><span>alumnos con paquete vigente</span></div>
-    <div class="kpi"><b>${o.alumnos}</b><span>alumnos registrados</span></div>
-    <div class="kpi"><b>${money(o.ingresosMes)}</b><span>ventas aprobadas este mes</span></div></div>
-    <div class="grid grid-2">
-      <div class="card"><h3>Acciones rápidas</h3><div class="row">
-        <button class="btn btn-primary btn-sm" data-goto="asistencia">Pasar lista de hoy</button>
-        <button class="btn btn-ghost btn-sm" data-goto="pagos">Validar pagos</button>
-        <button class="btn btn-ghost btn-sm" data-goto="alumnos">Vender paquete</button></div></div>
-      <div class="card"><h3>Vencen en 7 días</h3>${o.proximosVencimientos.length ? o.proximosVencimientos.map(v => `<div class="small">${esc(v.usuario)} · ${fmtDate(v.vence)}</div>`).join('') : '<p class="muted small">Nadie por ahora.</p>'}</div>
-    </div>`;
-  $$('[data-goto]', box).forEach(b => b.addEventListener('click', () => go('admin/' + b.dataset.goto)));
-}
-
-async function adminAttendance(box, fecha) {
-  fecha = fecha || S.attDate || todayMx();
-  S.attDate = fecha;
-  const [list, students] = await Promise.all([call('admin.attendance', { fecha }), admStudents()]);
-  box.innerHTML = `<div class="week-nav"><button class="btn btn-ghost btn-sm" id="dPrev">←</button>
-    <input type="date" id="dPick" value="${fecha}" style="width:auto"><button class="btn btn-ghost btn-sm" id="dNext">→</button>
-    <b>${fmtDate(fecha, true)}</b></div>
-    ${list.length ? list.map(x => {
-      const s = x.horario;
-      return `<div class="card" style="margin-bottom:14px"><div class="row"><h3 style="margin:0">${fmtTime(s.hora)} · ${esc(clase(s.claseId).nombre)}</h3>
-        <span class="muted small">${esc(instructor(s.instructorId).nombre)} · ${x.reservas.length}${s.cupo ? '/' + s.cupo : ''} lugares</span></div>
-        ${x.reservas.length ? `<div class="table-wrap" style="margin-top:12px"><table><tbody>${x.reservas.map(r => `<tr><td>${esc(r.nombre)}<div class="muted small">${esc(r.telefono)}</div></td>
-          <td>${stateTag(r.estado)}</td><td class="row" style="justify-content:flex-end">
-          <button class="btn btn-ghost btn-sm" data-mark="asistio" data-id="${esc(r.id)}">Asistió</button>
-          <button class="btn btn-ghost btn-sm" data-mark="falta" data-id="${esc(r.id)}">Faltó</button>
-          <button class="btn btn-danger btn-sm" data-acancel="${esc(r.id)}">Cancelar</button></td></tr>`).join('')}</tbody></table></div>` : '<p class="muted small" style="margin:10px 0 0">Sin reservas.</p>'}
-        <form class="row" data-addfor="${esc(s.id)}" style="margin-top:12px"><select name="usuarioId" style="max-width:280px"><option value="">Agregar alumno…</option>
-          ${students.filter(u => u.activo).map(u => `<option value="${esc(u.id)}">${esc(u.nombre)} (${esc(u.clasesDisponibles)})</option>`).join('')}</select>
-          <button class="btn btn-ghost btn-sm" type="submit">Agregar</button></form></div>`;
-    }).join('') : '<div class="empty card">No hay clases programadas este día.</div>'}`;
-  const reload = d => adminAttendance(box, d);
-  $('#dPrev', box).addEventListener('click', () => reload(addDays(fecha, -1)));
-  $('#dNext', box).addEventListener('click', () => reload(addDays(fecha, 1)));
-  $('#dPick', box).addEventListener('change', e => e.target.value && reload(e.target.value));
-  $$('[data-mark]', box).forEach(b => b.addEventListener('click', () => busy(b, async () => { await call('admin.markAttendance', { reservaId: b.dataset.id, estado: b.dataset.mark }); reload(fecha); }).catch(() => {})));
-  $$('[data-acancel]', box).forEach(b => b.addEventListener('click', () => {
-    if (!confirm('¿Cancelar la reserva y devolver la clase al alumno?')) return;
-    busy(b, async () => { await call('admin.cancelFor', { reservaId: b.dataset.acancel }); S.adm.students = null; reload(fecha); }).catch(() => {});
-  }));
-  $$('[data-addfor]', box).forEach(f => f.addEventListener('submit', e => {
-    e.preventDefault();
-    const usuarioId = f.usuarioId.value;
-    if (!usuarioId) return;
-    busy($('button', f), async () => { await call('admin.bookFor', { usuarioId, horarioId: f.dataset.addfor, fecha }); S.adm.students = null; toast('Alumno agregado.'); reload(fecha); }).catch(() => {});
-  }));
-}
-
 async function admStudents(force) {
   if (force || !S.adm.students) S.adm.students = await call('admin.students');
   return S.adm.students;
@@ -1517,21 +1473,166 @@ function adminSite(box) {
 async function pageAdmin(app, tab) {
   if (!S.user) { S.returnTo = 'admin'; return go('entrar'); }
   if (S.user.rol !== 'admin') return go('panel');
-  tab = tab || 'resumen';
-  const tabs = { resumen: 'Resumen', asistencia: 'Asistencia', pagos: 'Pagos', alumnos: 'Alumnos', horario: 'Horario', clases: 'Clases',
-    instructores: 'Instructoras', paquetes: 'Paquetes', videos: 'Videos', galeria: 'Imágenes', musica: 'Música', sitio: 'Sitio' };
-  app.innerHTML = `<div class="wrap"><div class="panel-head"><h1>Administración</h1></div>
-    <div class="tabs">${Object.keys(tabs).map(k => `<button class="${k === tab ? 'on' : ''}" data-tab="${k}">${tabs[k]}${k === 'pagos' ? pendingBadge() : ''}</button>`).join('')}</div>
-    <div id="admBox"><div class="loading"><div class="spinner"></div></div></div></div>`;
-  $$('[data-tab]', app).forEach(b => b.addEventListener('click', () => go('admin/' + b.dataset.tab)));
+  // Nombres anteriores de las secciones.
+  tab = { resumen: 'inicio', asistencia: 'inicio' }[tab] || tab || 'inicio';
+  const item = ADMIN_MENU.find(m => m[0] === tab) || ADMIN_MENU[0];
+  tab = item[0];
+  const chev = micon(MI.next);
+  app.innerHTML = `<div class="admin">
+    <aside class="admin-side">
+      <a class="admin-logo" href="#/admin" aria-label="Inicio de administración"><img src="${LOGO_FLOWER}" alt=""></a>
+      <nav>${ADMIN_MENU.map(m => `<a href="#/admin/${m[0]}" class="${m[0] === tab ? 'on' : ''}">${micon(m[2])}<span>${m[1]}</span>${m[0] === 'pagos' ? `<span data-badge="pagos">${pendingBadge()}</span>` : ''}${chev}</a>`).join('')}
+        <a href="#/panel">${micon(MI.user)}<span>Mi Cuenta</span>${chev}</a>
+        <a href="#/">${micon(MI.globe)}<span>Website</span>${chev}</a>
+        <button type="button" id="admLogout">${micon(MI.logout)}<span>Cerrar sesión</span></button></nav>
+      <small>© ${todayMx().slice(0, 4)} ${esc(cfg().nombre || 'YogaCentral')}</small>
+    </aside>
+    <section class="admin-main">
+      <div class="admin-crumb"><a href="#/admin" aria-label="Inicio">${micon(MI.home)}</a>${micon(MI.next)}<span>${tab === 'inicio' ? 'Calendario de clases' : item[1]}</span></div>
+      <div class="admin-top"><h1 id="admTitle">${tab === 'inicio' ? '' : item[1]}</h1>
+        <div class="admin-actions">${canInstall() ? `<button type="button" data-install-open><span>${micon(MI.phone)}</span>Instalar</button>` : ''}
+          <button type="button" data-goto="pagos"><span>${micon(MI.bell)}${pendingBadge()}</span>Pagos</button>
+          <button type="button" id="admCash"><span>${micon(MI.plus)}</span>Efectivo</button></div></div>
+      <div id="admBox"><div class="loading"><div class="spinner"></div></div></div>
+    </section></div>`;
+  $('#admLogout', app).addEventListener('click', async () => { await call('auth.logout').catch(() => null); setSession(null); go(''); });
+  $$('[data-goto]', app).forEach(b => b.addEventListener('click', () => go('admin/' + b.dataset.goto)));
+  $('#admCash', app).addEventListener('click', () => busy($('#admCash', app), async () => { await admStudents(); sellModal('', () => { if (tab === 'inicio') render(); }); }).catch(() => {}));
   const box = $('#admBox');
   const crud = { horario: 'Horario', clases: 'Clases', instructores: 'Instructores', paquetes: 'Paquetes', videos: 'Videos', galeria: 'Galeria', musica: 'Musica' };
   if (crud[tab]) return adminCrud(box, crud[tab]);
-  if (tab === 'asistencia') return adminAttendance(box);
   if (tab === 'pagos') return adminPayments(box);
   if (tab === 'alumnos') return adminStudents(box);
   if (tab === 'sitio') return adminSite(box);
-  return adminOverview(box);
+  return adminCalendar(box);
+}
+
+const ADMIN_MENU = [['inicio', 'Inicio', MI.home], ['sitio', 'Estudio', MI.gear], ['instructores', 'Instructores', MI.user],
+  ['clases', 'Clases', MI.leaf], ['horario', 'Horarios', MI.cal], ['videos', 'Videoteca', MI.film], ['paquetes', 'Paquetes', MI.bag],
+  ['pagos', 'Pagos', MI.money], ['alumnos', 'Estudiantes', MI.users], ['galeria', 'Imágenes', MI.image], ['musica', 'Música', MI.music]];
+
+const MONTHS_LONG = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+// "Hoy, domingo 8 nov 2026" (corto) o "Hoy, domingo 8 de noviembre de 2026" (largo).
+function dayTitle(ymd, long) {
+  const p = ymd.split('-').map(Number);
+  const rel = { [todayMx()]: 'Hoy', [addDays(todayMx(), 1)]: 'Mañana', [addDays(todayMx(), -1)]: 'Ayer' }[ymd];
+  const day = DAYS[weekday(ymd)];
+  const date = long ? p[2] + ' de ' + MONTHS_LONG[p[1] - 1] + ' de ' + p[0] : p[2] + ' ' + MONTHS[p[1] - 1] + ' ' + p[0];
+  return (rel ? rel + ', ' + day.toLowerCase() : day) + ' ' + date;
+}
+function dayBadge(ymd) {
+  return { [todayMx()]: 'Hoy', [addDays(todayMx(), 1)]: 'Mañana', [addDays(todayMx(), -1)]: 'Ayer' }[ymd] || DAYS_SHORT[weekday(ymd)] + ' ' + Number(ymd.slice(8));
+}
+
+// Inicio del administrador: calendario de clases con "Tomar asistencia" en cada una.
+async function adminCalendar(box) {
+  const cal = S.acal = S.acal || { mode: 'dia', day: todayMx(), only: 'todas', filter: '', open: false };
+  const today = todayMx();
+  const notices = await call('admin.overview').catch(() => null);
+  const draw = () => {
+    const start = cal.mode === 'semana' ? mondayOf(cal.day) : cal.day;
+    const end = cal.mode === 'semana' ? addDays(start, 6) : start;
+    const days = cal.mode === 'semana' ? [0, 1, 2, 3, 4, 5, 6].map(i => addDays(start, i)) : [start];
+    const used = Array.from(new Set(S.data.horario.map(s => s.claseId)));
+    $('#admTitle').textContent = cal.mode === 'dia' ? dayTitle(start) : periodLabel(start, end);
+    const cards = [];
+    days.forEach(fecha => slotsOn(fecha).forEach(s => {
+      if (cal.filter && s.claseId !== cal.filter) return;
+      const past = fecha + ' ' + s.hora <= nowMx();
+      if (cal.only === 'proximas' && past) return;
+      const ins = instructor(s.instructorId);
+      const taken = S.occ[s.id + '|' + fecha] || 0;
+      const online = s.modalidad === 'en línea';
+      cards.push(`<article class="acard ${past ? 'past' : ''}">
+        <div class="acard-head"><span class="acard-ico">${micon(online ? MI.screen : MI.home)}</span>
+          <div><small>${s.sala ? esc(s.sala) + ' · ' : ''}${online ? 'En línea' : 'Presencial'}</small><div class="acard-date">${dayTitle(fecha, true)}</div></div>
+          <span class="acard-badge">${micon(MI.cal)}${esc(dayBadge(fecha))}</span></div>
+        <h3>${esc(clase(s.claseId).nombre || 'Clase')}</h3>
+        <ul class="acard-info"><li>${micon(MI.user)}Imparte: ${esc(ins.nombre || '—')}</li>
+          <li>${micon(MI.sun)}Hora de inicio: ${fmtTime(s.hora)}</li>
+          <li>${micon(MI.clock)}Duración de la clase: ${s.duracion} min</li></ul>
+        <div class="acard-foot"><button type="button" class="btn-dark" data-att="${esc(s.id)}" data-date="${fecha}">${micon(MI.list)}Tomar asistencia</button>
+          <span>Espacios ocupados: ${taken}${s.cupo ? ' / ' + s.cupo : ''}</span></div></article>`);
+    }));
+    box.innerHTML = `${notices ? `<div class="admin-notes">
+        <a class="admin-note" href="#/admin/pagos"><span>${micon(MI.money)}</span>${notices.pendientes ? `Tienes ${notices.pendientes} pago${notices.pendientes === 1 ? '' : 's'} por aprobar.` : 'No hay pagos por aprobar.'}</a>
+        <a class="admin-note" href="#/admin/alumnos"><span>${micon(MI.users)}</span>${notices.proximosVencimientos.length ? `${notices.proximosVencimientos.length} estudiante${notices.proximosVencimientos.length === 1 ? '' : 's'} con paquete por vencer esta semana.` : `${notices.alumnosActivos} estudiantes con paquete vigente.`}</a>
+      </div>` : ''}
+      <div class="admin-controls">
+        <div><span class="cal-label">Ver por</span><div class="seg">
+          <button type="button" data-mode="dia" class="${cal.mode === 'dia' ? 'on' : ''}">${micon(MI.day)}Día</button>
+          <button type="button" data-mode="semana" class="${cal.mode === 'semana' ? 'on' : ''}">${micon(MI.cal)}Semana</button></div></div>
+        <div><span class="cal-label">Mostrar clases</span><div class="seg">
+          <button type="button" data-only="todas" class="${cal.only === 'todas' ? 'on' : ''}">${micon(MI.eye)}Todas</button>
+          <button type="button" data-only="proximas" class="${cal.only === 'proximas' ? 'on' : ''}">${micon(MI.eyeOff)}Próximas</button></div></div>
+        <div class="admin-period"><span class="cal-label">Periodo</span><div class="period">
+          <button type="button" id="aPrev" aria-label="Anterior">${micon(MI.prev)}</button>
+          <span>${cal.mode === 'dia' ? dayTitle(start) : periodLabel(start, end)}</span>
+          <button type="button" id="aNext" aria-label="Siguiente">${micon(MI.next)}</button></div>
+          <div class="cal-filter-row"><button type="button" class="btn-today" id="aToday">${micon(MI.cal)}Ir a Hoy</button>
+            <button type="button" class="btn-filter ${cal.filter ? 'on' : ''}" id="aFilter">${micon(MI.filter)}Filtrar${cal.filter ? ' · ' + esc(clase(cal.filter).nombre) : ''}</button></div></div>
+      </div>
+      ${cal.open ? `<div class="chips"><button class="chip ${!cal.filter ? 'on' : ''}" data-f="">Todas</button>
+        ${used.map(id => `<button class="chip ${cal.filter === id ? 'on' : ''}" data-f="${esc(id)}">${esc(clase(id).nombre)}</button>`).join('')}</div>` : ''}
+      <div class="acards">${cards.join('') || `<div class="cal-empty"><img src="${LOGO_FLOWER}" alt="">No hay clases que mostrar</div>`}</div>
+      <p class="admin-tz">Fechas y horas en la hora del centro de México <span>(America/Mexico_City)</span></p>`;
+    $$('[data-mode]', box).forEach(b => b.addEventListener('click', () => { cal.mode = b.dataset.mode; refresh(); }));
+    $$('[data-only]', box).forEach(b => b.addEventListener('click', () => { cal.only = b.dataset.only; draw(); }));
+    $('#aPrev', box).addEventListener('click', () => { cal.day = addDays(cal.mode === 'semana' ? mondayOf(cal.day) : cal.day, cal.mode === 'semana' ? -7 : -1); refresh(); });
+    $('#aNext', box).addEventListener('click', () => { cal.day = addDays(cal.mode === 'semana' ? mondayOf(cal.day) : cal.day, cal.mode === 'semana' ? 7 : 1); refresh(); });
+    $('#aToday', box).addEventListener('click', () => { cal.day = today; refresh(); });
+    $('#aFilter', box).addEventListener('click', () => { cal.open = !cal.open; draw(); });
+    $$('[data-f]', box).forEach(b => b.addEventListener('click', () => { cal.filter = b.dataset.f; cal.open = false; draw(); }));
+    $$('[data-att]', box).forEach(b => b.addEventListener('click', () => attendanceModal(b.dataset.att, b.dataset.date, refresh)));
+    return [start, end];
+  };
+  const refresh = async () => {
+    const [start, end] = draw();
+    S.occ = {};
+    await loadOccupancy(start, end);
+    if (box.isConnected) draw();
+  };
+  await refresh();
+}
+
+// Lista de una clase en una fecha: asistió, faltó, cancelar y agregar alumnos.
+async function attendanceModal(horarioId, fecha, after) {
+  const s = byId(S.data.horario, horarioId);
+  const body = openModal(`${clase(s.claseId).nombre || 'Clase'} · ${fmtTime(s.hora)}`, '<div class="loading"><div class="spinner"></div></div>');
+  const load = async () => {
+    const [list, students] = await Promise.all([call('admin.attendance', { fecha }), admStudents()]);
+    const x = list.find(i => i.horario.id === horarioId) || { reservas: [] };
+    const n = st => x.reservas.filter(r => r.estado === st).length;
+    body.innerHTML = `<p class="muted">${esc(dayTitle(fecha, true))} · ${esc(instructor(s.instructorId).nombre || '')}<br>
+      Inscritos: <b>${x.reservas.length}${s.cupo ? ' / ' + s.cupo : ''}</b> · Asistieron: <b>${n('asistio')}</b> · Faltaron: <b>${n('falta')}</b></p>
+      ${x.reservas.length ? `<div class="table-wrap"><table><tbody>${x.reservas.map(r => `<tr><td>${esc(r.nombre)}<div class="muted small">${esc(r.telefono)}</div></td>
+        <td>${stateTag(r.estado)}</td><td><div class="row" style="justify-content:flex-end;flex-wrap:nowrap">
+        <button class="btn btn-ghost btn-sm" data-mark="${r.estado === 'asistio' ? 'reservada' : 'asistio'}" data-id="${esc(r.id)}">${r.estado === 'asistio' ? 'Deshacer' : 'Asistió'}</button>
+        <button class="btn btn-ghost btn-sm" data-mark="${r.estado === 'falta' ? 'reservada' : 'falta'}" data-id="${esc(r.id)}">${r.estado === 'falta' ? 'Deshacer' : 'Faltó'}</button>
+        <button class="btn btn-danger btn-sm" data-acancel="${esc(r.id)}">Cancelar</button></div></td></tr>`).join('')}</tbody></table></div>`
+        : '<div class="cal-empty">Aún no hay inscritos en esta clase.</div>'}
+      ${x.reservas.some(r => r.estado === 'reservada') ? '<p><button class="btn btn-primary btn-sm" id="allIn">Marcar a todos como asistió</button></p>' : ''}
+      <form class="row" id="addFor" style="margin-top:12px"><select name="usuarioId" style="max-width:300px"><option value="">Agregar estudiante…</option>
+        ${students.filter(u => u.activo).map(u => `<option value="${esc(u.id)}">${esc(u.nombre)} (${esc(u.clasesDisponibles)})</option>`).join('')}</select>
+        <button class="btn btn-ghost btn-sm" type="submit">Agregar</button></form>`;
+    const done = async () => { await load(); if (after) after(); };
+    $$('[data-mark]', body).forEach(b => b.addEventListener('click', () => busy(b, async () => { await call('admin.markAttendance', { reservaId: b.dataset.id, estado: b.dataset.mark }); await done(); }).catch(() => {})));
+    $$('[data-acancel]', body).forEach(b => b.addEventListener('click', () => {
+      if (!confirm('¿Cancelar la reserva y devolver la clase al estudiante?')) return;
+      busy(b, async () => { await call('admin.cancelFor', { reservaId: b.dataset.acancel }); S.adm.students = null; await done(); }).catch(() => {});
+    }));
+    if ($('#allIn', body)) $('#allIn', body).addEventListener('click', e => busy(e.target, async () => {
+      for (const r of x.reservas.filter(r => r.estado === 'reservada')) await call('admin.markAttendance', { reservaId: r.id, estado: 'asistio' });
+      await done();
+    }).catch(() => {}));
+    $('#addFor', body).addEventListener('submit', e => {
+      e.preventDefault();
+      const usuarioId = e.target.usuarioId.value;
+      if (!usuarioId) return;
+      busy($('button', e.target), async () => { await call('admin.bookFor', { usuarioId, horarioId, fecha }); S.adm.students = null; toast('Estudiante agregado.'); await done(); }).catch(() => {});
+    });
+  };
+  await load().catch(e => { body.innerHTML = `<p class="muted">${esc(e.message)}</p>`; });
 }
 
 // ---------------------------------------------------------------------------
@@ -1586,8 +1687,7 @@ function setPending(list) {
   renderNav();
   // En celular "Administrar" está dentro del menú: el punto rojo avisa en el botón.
   $('#menuBtn').classList.toggle('alert', S.pending.length > 0);
-  const tab = $('[data-tab="pagos"]');
-  if (tab) tab.innerHTML = 'Pagos' + pendingBadge();
+  $$('[data-badge="pagos"]').forEach(el => { el.innerHTML = pendingBadge(); });
 }
 async function checkPending() {
   if (!S.user || S.user.rol !== 'admin') return;

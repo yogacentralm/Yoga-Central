@@ -20,9 +20,7 @@ El código no contiene el ID de la hoja, de las carpetas ni ninguna contraseña.
 
 **Panel de la instructora** (`Mis clases`): ve solo las clases que tiene asignadas en el horario, día por día. Muestra quién está inscrito con su teléfono, permite marcar asistió o faltó (un segundo clic lo deshace) o "Marcar a todos como asistió", y da el total de inscritos, asistencias y faltas del día. No ve pagos ni datos de otras clases.
 
-**Panel de administración** (`Administrar`):
-- Resumen: reservas de hoy, pagos por validar, alumnos activos, ventas del mes y vencimientos próximos.
-- Asistencia: lista por día, marcar asistió o faltó, cancelar, agregar alumnos.
+**Panel de administración** (`Administrar`), con el diseño de Tribu: menú lateral con el logo (Inicio, Estudio, Instructores, Clases, Horarios, Videoteca, Paquetes, Pagos, Estudiantes, Imágenes, Música, Mi Cuenta, Website) y, en **Inicio**, el calendario de clases por día o semana con avisos (pagos por aprobar, paquetes por vencer), botones *Pagos* y *Efectivo* (venta en estudio), *Todas / Próximas*, *Ir a Hoy*, filtro, espacios ocupados y **Tomar asistencia** en cada clase (asistió, faltó, cancelar, agregar estudiante o marcar a todos).
 - Pagos: aprobar o rechazar comprobantes. Registrar ventas en mostrador (efectivo o terminal).
 - **Aviso de pagos por aprobar:** cuando un alumno sube su comprobante:
   - Al abrir la app (o al volver a ella) aparece una ventana con quién pagó, el paquete y el monto, con **Revisar ahora** y **Más tarde**. Solo se repite si llega un pago nuevo.

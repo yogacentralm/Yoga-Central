@@ -1,10 +1,10 @@
 // Generado por dev/build.js — no editar a mano.
-const VERSION = '1c392c2b0f';
+const VERSION = '060ab3868d';
 const SHELL = 'shell-' + VERSION;
 const RUNTIME = 'runtime-v1';
 const IMAGES = 'images-v2'; // v1 pudo guardar fotos de Drive fallidas (respuestas opacas)
-const PRECACHE = ['./', './index.html', './manifest.webmanifest', './app/styles.css?v=1c392c2b0f', './app/app.js?v=1c392c2b0f',
-  './app/icons/icon-192.png', './app/icons/icon-512.png'];
+const PRECACHE = ['./', './index.html', './manifest.webmanifest', './app/styles.css?v=060ab3868d', './app/app.js?v=060ab3868d',
+  './app/icons/icon-192.png', './app/icons/icon-512.png', './app/logo.png', './app/logo-mark.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(SHELL).then(c => c.addAll(PRECACHE)).then(() => self.skipWaiting()));
