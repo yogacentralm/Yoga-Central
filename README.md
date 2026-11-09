@@ -24,6 +24,11 @@ El código no contiene el ID de la hoja, de las carpetas ni ninguna contraseña.
 - Resumen: reservas de hoy, pagos por validar, alumnos activos, ventas del mes y vencimientos próximos.
 - Asistencia: lista por día, marcar asistió o faltó, cancelar, agregar alumnos.
 - Pagos: aprobar o rechazar comprobantes. Registrar ventas en mostrador (efectivo o terminal).
+- **Aviso de pagos por aprobar:** cuando un alumno sube su comprobante:
+  - Al abrir la app (o al volver a ella) aparece una ventana con quién pagó, el paquete y el monto, con **Revisar ahora** y **Más tarde**. Solo se repite si llega un pago nuevo.
+  - *Administrar* y la pestaña *Pagos* muestran un número rojo; en celular, un punto rojo en el botón del menú.
+  - Con el sitio cerrado llega un **correo** a cada administrador con el botón *Revisar y aprobar*; en el celular aparece como notificación de Gmail. Se apaga en *Sitio → Avisarme por correo…*.
+  - La primera vez, en el editor de Apps Script ejecuta **`probarAvisoDePago`** para aceptar el permiso de enviar correos (te llega un aviso de prueba).
 - Alumnos: buscar, ver saldo, enviar WhatsApp, vender paquete, cambiar el **rol** (alumno, instructora o administrador) y desactivar cuentas.
 - Horario, Clases, Instructoras, Paquetes y Videos: alta, edición y baja, con fotos guardadas en Drive.
 - Imágenes: fotos del diseño, asignadas a una página. Son decorativas y no se abren al tocarlas. Cada una tiene un **uso**:

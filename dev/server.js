@@ -115,6 +115,7 @@ const globals = {
     remove: k => cache.delete(k),
   }) },
   LockService: { getScriptLock: () => ({ waitLock: () => {}, releaseLock: () => {} }) },
+  MailApp: { sendEmail: m => console.log('[correo] para ' + m.to + ': ' + m.subject) },
   Session: { getEffectiveUser: () => ({ getEmail: () => DEV_ADMIN }) },
   SpreadsheetApp: {
     create: () => { state.sheets = {}; state.sheets['Hoja 1'] = []; return spreadsheet('dev-db'); },

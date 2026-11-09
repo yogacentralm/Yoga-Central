@@ -432,7 +432,7 @@ function renderNav() {
   $('#installTop').hidden = !canInstall();
   $('#navAuth').innerHTML = (!u
     ? '<a href="#/entrar">Iniciar sesión</a><a class="btn btn-primary btn-sm" href="#/registro">Crear cuenta</a>'
-    : (u.rol === 'admin' ? '<a href="#/admin">Administrar</a>' : '') + (u.rol === 'instructor' ? '<a href="#/instructor">Mis clases</a>' : '')
+    : (u.rol === 'admin' ? '<a href="#/admin">Administrar' + pendingBadge() + '</a>' : '') + (u.rol === 'instructor' ? '<a href="#/instructor">Mis clases</a>' : '')
       + '<a class="btn btn-primary btn-sm" href="#/panel">Mi cuenta</a>');
 }
 
@@ -842,6 +842,7 @@ function pageAuth(mode, app) {
       const next = S.returnTo || homeFor(session.user);
       S.returnTo = null;
       go(next);
+      setTimeout(checkPending, 600);
     }).catch(() => {});
   });
 }
@@ -1265,6 +1266,7 @@ function sellModal(usuarioId, after) {
 async function adminPayments(box, estado) {
   estado = estado === undefined ? 'pendiente' : estado;
   const list = await call('admin.purchases', { estado });
+  if (estado === 'pendiente') setPending(list);
   await admStudents();
   box.innerHTML = `<div class="row" style="margin-bottom:14px"><div class="chips" style="margin:0">
     ${[['pendiente', 'Por validar'], ['aprobado', 'Aprobados'], ['rechazado', 'Rechazados'], ['', 'Todos']].map(o => `<button class="chip ${estado === o[0] ? 'on' : ''}" data-st="${o[0]}">${o[1]}</button>`).join('')}</div>
@@ -1357,6 +1359,7 @@ function adminSite(box) {
     <h2 style="margin-top:28px">Datos para recibir pagos</h2>
     <p class="muted small">Los alumnos los ven al comprar un paquete y pueden copiar la CLABE con un toque.</p>
     <div class="form-grid">${PAY_FIELDS.map(f => fieldHtml(f, c[f.k] || '')).join('')}</div>
+    ${fieldHtml({ k: 'avisoPagos', l: 'Avisarme por correo cuando un alumno suba un comprobante', t: 'bool' }, String(c.avisoPagos) !== 'false')}
     <h2 style="margin-top:28px">Datos del sitio</h2><div class="form-grid">${CONFIG_FIELDS.map(f => fieldHtml(f, c[f.k] || '')).join('')}</div>
     <button class="btn btn-primary" type="submit">Guardar cambios</button>
     <div class="save-bar" id="saveBar" hidden><span>Cambios sin guardar</span>
@@ -1424,7 +1427,7 @@ async function pageAdmin(app, tab) {
   const tabs = { resumen: 'Resumen', asistencia: 'Asistencia', pagos: 'Pagos', alumnos: 'Alumnos', horario: 'Horario', clases: 'Clases',
     instructores: 'Instructoras', paquetes: 'Paquetes', videos: 'Videos', galeria: 'Imágenes', musica: 'Música', sitio: 'Sitio' };
   app.innerHTML = `<div class="wrap"><div class="panel-head"><h1>Administración</h1></div>
-    <div class="tabs">${Object.keys(tabs).map(k => `<button class="${k === tab ? 'on' : ''}" data-tab="${k}">${tabs[k]}</button>`).join('')}</div>
+    <div class="tabs">${Object.keys(tabs).map(k => `<button class="${k === tab ? 'on' : ''}" data-tab="${k}">${tabs[k]}${k === 'pagos' ? pendingBadge() : ''}</button>`).join('')}</div>
     <div id="admBox"><div class="loading"><div class="spinner"></div></div></div></div>`;
   $$('[data-tab]', app).forEach(b => b.addEventListener('click', () => go('admin/' + b.dataset.tab)));
   const box = $('#admBox');
@@ -1475,6 +1478,41 @@ function initInstall() {
 const INVITE_PAGES = ['inicio', 'horarios', 'paquetes', 'instructores', 'videos'];
 const onInvitePage = () => INVITE_PAGES.indexOf(routeKey(currentRoute()[0]) || '') >= 0;
 const typingNow = () => !!(document.activeElement && document.activeElement.matches && document.activeElement.matches('input, textarea, select'));
+
+// ---------------------------------------------------------------------------
+// Pagos por aprobar: número en el menú y aviso al abrir la app (solo administradores).
+
+S.pending = [];
+S.pendingSeen = 0;
+const pendingBadge = () => (S.pending.length ? `<span class="badge" aria-label="${S.pending.length} por aprobar">${S.pending.length}</span>` : '');
+function setPending(list) {
+  // Solo cuentan los que ya tienen comprobante: los demás aún no pagan.
+  S.pending = list.filter(c => c.estado === 'pendiente' && c.comprobante);
+  if (S.pending.length < S.pendingSeen) S.pendingSeen = S.pending.length;
+  renderNav();
+  // En celular "Administrar" está dentro del menú: el punto rojo avisa en el botón.
+  $('#menuBtn').classList.toggle('alert', S.pending.length > 0);
+  const tab = $('[data-tab="pagos"]');
+  if (tab) tab.innerHTML = 'Pagos' + pendingBadge();
+}
+async function checkPending() {
+  if (!S.user || S.user.rol !== 'admin') return;
+  setPending(await call('admin.purchases', { estado: 'pendiente' }).catch(() => S.pending));
+  // Se avisa una vez por cada pago nuevo; no en la propia pantalla de pagos ni encima de otra ventana.
+  if (S.pending.length <= S.pendingSeen || currentRoute().join('/') === 'admin/pagos' || !$('#modal').hidden || typingNow()) return;
+  S.pendingSeen = S.pending.length;
+  const n = S.pending.length;
+  openModal(n === 1 ? 'Tienes un pago por aprobar' : `Tienes ${n} pagos por aprobar`,
+    `<p class="muted">${n === 1 ? 'Esta persona subió su comprobante y espera' : 'Estas personas subieron su comprobante y esperan'} tu aprobación para usar su paquete.</p>
+    <ul class="pending-list">${S.pending.slice(0, 4).map(c => `<li><span class="pending-dot"></span><div><b>${esc(c.usuario)}</b>
+      <div class="muted small">${esc(c.paquete)} · ${money(c.precio)}</div></div></li>`).join('')}</ul>
+    ${n > 4 ? `<p class="muted small">y ${n - 4} más…</p>` : ''}
+    <div class="row" style="margin-top:18px"><button class="btn btn-primary" id="pendGo">Revisar ahora</button>
+    <button class="btn btn-ghost" data-close>Más tarde</button></div>`);
+  $('#pendGo').addEventListener('click', () => { closeModal(); go('admin/pagos'); });
+}
+// Al volver a la app (cambiar de pestaña o desbloquear el celular) se revisa si llegaron pagos.
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkPending(); });
 
 function maybeInviteInstall() {
   if (INSTALL.shown || !canInstall() || !isPhone() || !onInvitePage()) return;
@@ -1606,6 +1644,7 @@ async function refreshBootstrap() {
     const typing = document.activeElement && document.activeElement.closest && document.activeElement.closest('form');
     if (!hit || (changed && $('#modal').hidden && !typing && !editingSite())) { renderChrome(); renderNav(); render(); }
     else { renderChrome(); renderNav(); }
+    setTimeout(checkPending, 600);
   } catch (e) {
     if (!hit) return showBootError(e);
     if (e.offline) setOffline(true, hit.t);

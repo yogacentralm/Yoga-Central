@@ -30,6 +30,8 @@ const TABLES = {
 };
 
 const PAGES = ['inicio', 'horarios', 'paquetes', 'instructores', 'videos', 'panel', 'instructor'];
+// Sitio público en GitHub Pages: los correos de aviso enlazan aquí.
+const SITE_URL = 'https://yogacentralm.github.io/Yoga-Central/';
 const COLOR_KEYS = ['colorPrimario', 'colorAcento', 'colorTitulos', 'colorTexto', 'colorFondo', 'colorSuave', 'colorBordes'];
 // Tipografías de Google Fonts elegidas en Administrar → Sitio (solo el nombre de la familia).
 const FONT_KEYS = ['fuenteTitulos', 'fuenteTexto'];
@@ -620,6 +622,7 @@ function buy_(u, p) {
   if (p.archivo) compra.comprobante = saveUpload_(p.archivo, 'comprobante', 'comprobante-' + u.email).getUrl();
   const saved = insert_('Compras', compra);
   if (pkg.precio === 0) return approve_(saved.id, 'Clase sin costo');
+  if (saved.comprobante) notifyPayment_(saved, u);
   return saved;
 }
 
@@ -628,7 +631,50 @@ function uploadReceipt_(u, compraId, archivo) {
   if (c.usuarioId !== u.id) throw userError_('Esa compra no es tuya.');
   if (c.estado !== 'pendiente') throw userError_('Esa compra ya fue revisada.');
   const url = saveUpload_(archivo, 'comprobante', 'comprobante-' + u.email).getUrl();
-  return update_('Compras', c.id, { comprobante: url });
+  const saved = update_('Compras', c.id, { comprobante: url });
+  notifyPayment_(saved, u);
+  return saved;
+}
+
+// Correo a los administradores cuando un alumno sube un comprobante. En el celular llega
+// como notificación de Gmail aunque el sitio esté cerrado. Se apaga en Administrar → Sitio.
+function notifyPayment_(compra, u) {
+  try {
+    const cfg = readConfig_();
+    if (String(cfg.avisoPagos) === 'false') return;
+    const to = rows_('Usuarios').filter(x => x.rol === 'admin' && x.activo && x.email).map(x => x.email);
+    if (!to.length) return;
+    const pkg = rows_('Paquetes').find(p => p.id === compra.paqueteId) || {};
+    const estudio = cfg.nombre || 'yogacentral';
+    const precio = '$' + Number(compra.precio || 0).toLocaleString('es-MX');
+    const link = SITE_URL + '#/admin/pagos';
+    MailApp.sendEmail({
+      to: to.join(','),
+      name: estudio,
+      subject: 'Pago por aprobar: ' + u.nombre + ' · ' + (pkg.nombre || 'paquete') + ' · ' + precio,
+      body: u.nombre + ' subió su comprobante de pago.\n\nPaquete: ' + (pkg.nombre || '') + '\nMonto: ' + precio
+        + '\nTeléfono: ' + (u.telefono || '—') + '\n\nRevísalo y apruébalo aquí: ' + link,
+      htmlBody: '<div style="font-family:Arial,sans-serif;font-size:15px;color:#333;line-height:1.5">'
+        + '<p><b>' + esc_(u.nombre) + '</b> subió su comprobante de pago.</p>'
+        + '<p>Paquete: <b>' + esc_(pkg.nombre || '') + '</b><br>Monto: <b>' + precio + '</b><br>Teléfono: ' + esc_(u.telefono || '—') + '</p>'
+        + '<p><a href="' + link + '" style="display:inline-block;background:#669C35;color:#fff;padding:12px 22px;border-radius:999px;text-decoration:none;font-weight:bold">Revisar y aprobar</a></p>'
+        + '<p style="color:#888;font-size:12px">Puedes apagar estos avisos en Administrar → Sitio.</p></div>',
+    });
+  } catch (e) {
+    // El comprobante ya quedó guardado; un fallo del correo no debe afectar al alumno.
+    console.warn('Aviso de pago sin enviar: ' + e);
+  }
+}
+
+function esc_(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]); }
+
+// Ejecútala una vez desde el editor de Apps Script: acepta el permiso de enviar correos
+// y te manda un aviso de prueba.
+function probarAvisoDePago() {
+  const u = { nombre: 'Alumno de prueba', telefono: '8710000000' };
+  const pkg = rows_('Paquetes').find(p => p.activo && p.precio > 0) || {};
+  notifyPayment_({ paqueteId: pkg.id, precio: pkg.precio || 0 }, u);
+  return 'Listo: revisa el correo de los administradores.';
 }
 
 function memberVideos_(u) {
