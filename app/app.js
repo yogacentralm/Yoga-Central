@@ -542,15 +542,16 @@ function pageHome(app) {
   const c = cfg();
   // Un fondo de "Imágenes del diseño" para Inicio tiene prioridad sobre la imagen de portada de Sitio.
   const heroImg = pageBackground('inicio') || c.heroImagen;
+  // Con foto, el logo va en la propia foto; sin foto se dibuja al centro.
   // La descripción de Sitio: un párrafo por línea.
   const paras = String(c.descripcion || '').split(/\n+/).map(t => t.trim()).filter(Boolean);
   app.innerHTML = `
   <section class="cover ${heroImg ? 'has-img' : ''}" ${heroImg ? `style="background-image:url('${esc(heroImg)}')"` : ''}>
-    <div class="cover-mark">
+    ${heroImg ? `<h1 class="sr-only">${esc(c.nombre || 'YogaCentral')}</h1>` : `<div class="cover-mark">
       <svg viewBox="0 0 40 40" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4">${LOGO_MARK}</svg>
       <b>${esc(c.nombre || 'YogaCentral')}</b>
       ${c.lema ? `<span>${esc(c.lema)}</span>` : ''}
-    </div>
+    </div>`}
   </section>
 
   <section class="about"><div class="wrap"><div class="about-in">
@@ -753,7 +754,7 @@ async function pageVideos(app) {
     <p class="muted">Practica desde casa. Los videos marcados para miembros requieren un paquete vigente.</p>
     ${all.length ? `<div class="grid grid-2" style="margin-top:24px">${all.map(v => {
       const src = v.url && embedUrl(v.url);
-      return `<div class="card">${src ? `<div class="video-frame"><iframe src="${esc(src)}" title="${esc(v.titulo)}" loading="lazy" allowfullscreen></iframe></div>`
+      return `<div class="card">${src ? `<div class="video-frame"><iframe src="${esc(src)}" title="${esc(v.titulo)}" loading="lazy" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe></div>`
         : v.url ? `<p><a class="btn btn-ghost" href="${esc(v.url)}" target="_blank" rel="noopener">Abrir video</a></p>`
         : `<div class="video-frame" style="display:grid;place-items:center;color:#fff">🔒 Solo miembros</div>`}
         <h3>${esc(v.titulo)}</h3><p class="muted small">${esc(v.descripcion)}</p></div>`;

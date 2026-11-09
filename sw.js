@@ -1,9 +1,9 @@
 // Generado por dev/build.js — no editar a mano.
-const VERSION = 'd7dfc1e6e0';
+const VERSION = '2d81fcb12c';
 const SHELL = 'shell-' + VERSION;
 const RUNTIME = 'runtime-v1';
-const IMAGES = 'images-v1';
-const PRECACHE = ['./', './index.html', './manifest.webmanifest', './app/styles.css?v=d7dfc1e6e0', './app/app.js?v=d7dfc1e6e0',
+const IMAGES = 'images-v2'; // v1 pudo guardar fotos de Drive fallidas (respuestas opacas)
+const PRECACHE = ['./', './index.html', './manifest.webmanifest', './app/styles.css?v=2d81fcb12c', './app/app.js?v=2d81fcb12c',
   './app/icons/icon-192.png', './app/icons/icon-512.png'];
 
 self.addEventListener('install', e => {
@@ -12,7 +12,7 @@ self.addEventListener('install', e => {
 
 self.addEventListener('activate', e => {
   e.waitUntil(caches.keys()
-    .then(keys => Promise.all(keys.filter(k => k.startsWith('shell-') && k !== SHELL).map(k => caches.delete(k))))
+    .then(keys => Promise.all(keys.filter(k => (k.startsWith('shell-') && k !== SHELL) || (k.startsWith('images-') && k !== IMAGES)).map(k => caches.delete(k))))
     .then(() => self.clients.claim()));
 });
 
@@ -37,6 +37,20 @@ function cacheFirst(req, cacheName, maxEntries) {
   })));
 }
 
+// Fotos de Drive: se piden con CORS y sin la dirección de la página (Drive las rechaza con ella)
+// y solo se guardan si llegaron bien, para no quedarse con una foto rota.
+function driveImage(req) {
+  return caches.open(IMAGES).then(cache => cache.match(req.url).then(hit => hit || fetch(req.url, {
+    mode: 'cors', credentials: 'omit', referrerPolicy: 'no-referrer',
+  }).then(res => {
+    if (res.ok) {
+      cache.put(req.url, res.clone());
+      cache.keys().then(keys => keys.slice(0, Math.max(0, keys.length - 80)).forEach(k => cache.delete(k)));
+    }
+    return res;
+  }).catch(() => fetch(req))));
+}
+
 self.addEventListener('fetch', e => {
   const req = e.request;
   if (req.method !== 'GET') return; // la API usa POST y siempre va a la red
@@ -51,6 +65,6 @@ self.addEventListener('fetch', e => {
     return;
   }
   if (url.hostname === 'lh3.googleusercontent.com' && req.destination === 'image') {
-    e.respondWith(cacheFirst(req, IMAGES, 80));
+    e.respondWith(driveImage(req));
   }
 });

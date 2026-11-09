@@ -288,15 +288,16 @@ body:has(.save-bar:not([hidden])) .wa-float { display: none; }
 .pending-list li { display: flex; gap: 12px; align-items: center; padding: 10px 12px; border-radius: 12px; background: var(--soft); }
 .pending-dot { flex: none; width: 10px; height: 10px; border-radius: 50%; background: #E5484D; animation: pulse 1.4s ease-in-out infinite; }
 /* Inicio: foto a todo lo ancho con el logo al centro, texto del estudio e instructores. */
-.cover { position: relative; display: grid; place-items: center; min-height: max(420px, calc(100svh - 64px)); background: radial-gradient(800px 500px at 50% 40%, var(--soft), var(--bg)); background-size: cover; background-position: center; }
-.cover.has-img { background-attachment: fixed; }
+/* La portada se queda quieta (sticky) y las secciones siguientes suben y la van cubriendo, también en celular. */
+.cover { position: sticky; top: 64px; z-index: 0; display: grid; place-items: center; height: calc(100svh - 64px); min-height: 420px; background: radial-gradient(800px 500px at 50% 40%, var(--soft), var(--bg)); background-size: cover; background-position: center; }
 .cover.has-img::before { content: ''; position: absolute; inset: 0; background: rgba(255,255,255,.18); }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .cover-mark { position: relative; display: flex; flex-direction: column; align-items: center; text-align: center; }
 .cover-mark svg { width: 92px; height: 92px; color: var(--accent); margin-bottom: 8px; }
 .cover-mark b { font-family: var(--sans); font-size: 1.75rem; font-weight: 600; color: #6b6a6b; letter-spacing: -.01em; line-height: 1.1; }
 .cover-mark span { margin-top: 6px; font-size: .72rem; font-weight: 500; letter-spacing: .22em; text-transform: uppercase; color: #6b6a6b; }
-@media (hover: none), (max-width: 820px) { .cover.has-img { background-attachment: scroll; } }
-.about { background: var(--bg); padding: 88px 0 72px; }
+.about, .team { position: relative; z-index: 1; }
+.about { background: var(--bg); padding: 88px 0 72px; box-shadow: 0 -10px 30px rgba(0,0,0,.06); }
 .about-in { max-width: 660px; margin-left: 64px; }
 .about h2 { font-family: var(--sans); font-weight: 600; font-size: clamp(1.8rem, 3.4vw, 2.2rem); margin: 0; letter-spacing: -.02em; }
 .about-sub { margin: 2px 0 34px; font-weight: 600; color: var(--brand); }
