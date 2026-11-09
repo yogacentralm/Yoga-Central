@@ -14,7 +14,7 @@ El código no contiene el ID de la hoja, de las carpetas ni ninguna contraseña.
 
 ## Qué incluye
 
-**Sitio público:** portada con clase gratis y WhatsApp, próximas clases, horario semanal con cupos y filtro por estilo, paquetes con precio por clase, instructoras, videoteca, mapa, contacto y términos.
+**Sitio público:** el Inicio sigue el diseño de yogacentral.tribu.yoga: foto a todo lo ancho con el logo al centro (la foto es la *Imagen de portada* de Sitio), el texto del estudio (*Nombre*, *Lema* y *Descripción*, un párrafo por línea) y las instructoras en blanco y negro. El menú lleva Horarios, Tienda (paquetes), Videoteca, Crear Cuenta e Iniciar Sesión. Además: horario semanal con cupos y filtro por estilo, paquetes con precio por clase, perfiles de instructoras, videoteca, contacto y términos.
 
 **Panel del alumno** (`Mi cuenta`): saldo de clases y vigencia, reservar y cancelar (con límite de horas configurable), historial, compra de paquetes con subida de comprobante, clase muestra que se activa sola, perfil y cambio de contraseña.
 

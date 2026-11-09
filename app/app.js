@@ -226,8 +226,6 @@ const initials = name => String(name || '?').split(/\s+/).slice(0, 2).map(w => w
 // grave, Apps Script toma la doble barra como comentario y corta el resto de la línea.
 const waLink = text => cfg().whatsapp ? 'https://wa.me/' + cfg().whatsapp.replace(/\D/g, '') + '?text=' + encodeURIComponent(text || 'Hola, quiero información de las clases') : '';
 const waPhoneLink = tel => { const d = String(tel || '').replace(/\D/g, ''); return 'https://wa.me/' + (d.length === 10 ? '52' : '') + d; };
-const mapsSearchLink = (dir, ciudad) => 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent((dir || '') + ', ' + (ciudad || ''));
-const freePackage = () => (S.data.paquetes || []).find(p => p.precio === 0);
 
 // Páginas donde se puede poner galería o música (mismas claves que PAGES en Code.gs).
 const PAGE_LABELS = [['inicio', 'Inicio'], ['horarios', 'Horarios'], ['paquetes', 'Paquetes'], ['instructores', 'Instructoras'],
@@ -413,6 +411,7 @@ async function render() {
   $$('#nav a').forEach(a => a.classList.toggle('active', a.getAttribute('href') === '#/' + name));
   const app = $('#app');
   const key = ROUTES[name] ? routeKey(name) : 'inicio';
+  document.body.classList.toggle('at-home', key === 'inicio');
   renderDesign(key);
   updatePlayer(key);
   if (!onInvitePage()) hideInstall();
@@ -430,7 +429,7 @@ function renderNav() {
   // El botón de instalar vive en la barra, fuera del menú, para que siempre se vea.
   $('#installTop').hidden = !canInstall();
   $('#navAuth').innerHTML = (!u
-    ? '<a href="#/entrar">Iniciar sesión</a><a class="btn btn-primary btn-sm" href="#/registro">Crear cuenta</a>'
+    ? '<a href="#/registro">' + ICON_USER + 'Crear Cuenta</a><a href="#/entrar">' + ICON_LOGIN + 'Iniciar Sesión</a>'
     : (u.rol === 'admin' ? '<a href="#/admin">Administrar' + pendingBadge() + '</a>' : '') + (u.rol === 'instructor' ? '<a href="#/instructor">Mis clases</a>' : '')
       + '<a class="btn btn-primary btn-sm" href="#/panel">Mi cuenta</a>');
 }
@@ -471,15 +470,6 @@ function slotsOn(ymd) {
   return S.data.horario.filter(s => s.dia === d).sort((a, b) => a.hora < b.hora ? -1 : 1);
 }
 
-function nextSlots(count) {
-  const out = [];
-  const now = nowMx();
-  for (let i = 0; i < 14 && out.length < count; i++) {
-    const day = addDays(todayMx(), i);
-    slotsOn(day).forEach(s => { if (day + ' ' + s.hora > now && out.length < count) out.push({ slot: s, fecha: day }); });
-  }
-  return out;
-}
 
 async function loadOccupancy(desde, hasta) {
   // Si falla, el horario se muestra sin cupos.
@@ -543,74 +533,39 @@ function bookFlow(horarioId, fecha, after) {
 // ---------------------------------------------------------------------------
 // Páginas públicas
 
+// Logo (flor de la vida) para la portada; el de la barra está en Index.
+const LOGO_MARK = '<circle cx="20" cy="20" r="18"/><circle cx="20" cy="11" r="9"/><circle cx="20" cy="29" r="9"/><circle cx="11" cy="20" r="9"/><circle cx="29" cy="20" r="9"/><circle cx="20" cy="20" r="2.6"/><circle cx="20" cy="20" r=".9" fill="currentColor"/>';
+const ICON_USER = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="10" r="3"/><path d="M6.6 18.4a6.5 6.5 0 0 1 10.8 0"/></svg>';
+const ICON_LOGIN = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 17l5-5-5-5M15 12H3.5M14 3.5h4.5a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H14"/></svg>';
+
 function pageHome(app) {
   const c = cfg();
-  const free = freePackage();
-  const featured = S.data.paquetes.filter(p => p.destacado && p.precio > 0);
-  const upcoming = nextSlots(4);
   // Un fondo de "Imágenes del diseño" para Inicio tiene prioridad sobre la imagen de portada de Sitio.
   const heroImg = pageBackground('inicio') || c.heroImagen;
+  // La descripción de Sitio: un párrafo por línea.
+  const paras = String(c.descripcion || '').split(/\n+/).map(t => t.trim()).filter(Boolean);
   app.innerHTML = `
-  <section class="hero ${heroImg ? 'has-img' : ''}" ${heroImg ? `style="background-image:url('${esc(heroImg)}')"` : ''}>
-    <div class="wrap"><div class="hero-in">
-      <div class="eyebrow">${esc(c.lema)}</div>
-      <h1>Yoga, meditación y sonoterapia en ${esc((c.ciudad || '').split(',')[0] || 'tu ciudad')}</h1>
-      <p class="lead muted">${esc(c.descripcion)}</p>
-      <div class="row">
-        ${free ? `<button class="btn btn-accent" id="heroFree">Tu primera clase es gratis</button>` : ''}
-        <a class="btn btn-primary" href="#/horarios">Ver horarios</a>
-        ${waLink() ? `<a class="btn btn-ghost" href="${esc(waLink())}" target="_blank" rel="noopener">Escríbenos</a>` : ''}
-      </div>
-      <div class="stat-strip">
-        <div><b>${S.data.clases.length}</b><span class="muted small">estilos de práctica</span></div>
-        <div><b>${S.data.instructores.length}</b><span class="muted small">instructoras certificadas</span></div>
-        <div><b>${S.data.horario.length}</b><span class="muted small">clases por semana</span></div>
-      </div>
-    </div></div>
+  <section class="cover ${heroImg ? 'has-img' : ''}" ${heroImg ? `style="background-image:url('${esc(heroImg)}')"` : ''}>
+    <div class="cover-mark">
+      <svg viewBox="0 0 40 40" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4">${LOGO_MARK}</svg>
+      <b>${esc(c.nombre || 'YogaCentral')}</b>
+      ${c.lema ? `<span>${esc(c.lema)}</span>` : ''}
+    </div>
   </section>
 
-  <section class="section"><div class="wrap">
-    <div class="row"><h2>Próximas clases</h2><span class="spacer"></span><a href="#/horarios">Horario completo →</a></div>
-    <div id="upcoming">${upcoming.length ? upcoming.map(x => slotHtml(x.slot, x.fecha, { withDate: true })).join('') : '<p class="muted">Pronto publicaremos nuevos horarios.</p>'}</div>
-  </div></section>
+  <section class="about"><div class="wrap"><div class="about-in">
+    <h2>${esc(c.nombre || 'YogaCentral')}</h2>
+    ${c.lema ? `<p class="about-sub">${esc(c.lema)}</p>` : ''}
+    ${paras.map(t => `<p>${esc(t)}</p>`).join('')}
+  </div></div></section>
 
-  <section class="section section-soft"><div class="wrap">
-    <h2>Un lugar para cuidarte</h2>
-    <div class="grid grid-2" style="margin-top:20px">
-      ${[['🧘', 'Yoga para cada cuerpo', 'Desde clases restaurativas y suaves hasta Power y Vinyasa. Cada clase indica nivel e intensidad.'],
-         ['🌙', 'Meditación y descanso', 'Prácticas de atención plena para bajar el estrés y dormir mejor.'],
-         ['🔔', 'Sonoterapia', 'Baños de sonido con cuencos para relajar cuerpo y mente.'],
-         ['🤝', 'Comunidad', 'Grupos pequeños y un trato cercano: aquí te conocemos por tu nombre.']]
-        .map(f => `<div class="feature"><div class="ico">${f[0]}</div><div><h3>${f[1]}</h3><p class="muted">${f[2]}</p></div></div>`).join('')}
-    </div>
-  </div></section>
-
-  ${featured.length ? `<section class="section"><div class="wrap">
-    <div class="row"><h2>Paquetes</h2><span class="spacer"></span><a href="#/paquetes">Ver todos →</a></div>
-    <div class="grid grid-3" style="margin-top:16px">${featured.concat(free ? [free] : []).map(pkgCard).join('')}</div>
-  </div></section>` : ''}
-
-  <section class="section section-soft"><div class="wrap">
-    <div class="row"><h2>Instructoras</h2><span class="spacer"></span><a href="#/instructores">Conócelas →</a></div>
-    <div class="grid grid-4" style="margin-top:16px">${S.data.instructores.slice(0, 4).map(personCard).join('')}</div>
-  </div></section>
-
-  <section class="section"><div class="wrap grid grid-2">
-    <div><h2>Visítanos</h2><p>${esc(c.direccion)}<br>${esc(c.ciudad)}</p>
-      <div class="row">
-        <a class="btn btn-ghost" target="_blank" rel="noopener" href="${esc(mapsSearchLink(c.direccion, c.ciudad))}">Cómo llegar</a>
-        ${c.telefono ? `<a class="btn btn-ghost" href="tel:${esc(c.telefono.replace(/\s/g, ''))}">Llamar</a>` : ''}
-      </div></div>
-    <iframe class="map" loading="lazy" title="Mapa" src="${esc(c.mapa || 'https://www.google.com/maps?q=' + encodeURIComponent((c.direccion || '') + ', ' + (c.ciudad || '')) + '&output=embed')}"></iframe>
-  </div></section>`;
-  bindBooking(app, () => render());
-  bindPackages(app);
+  ${S.data.instructores.length ? `<section class="team"><div class="wrap">
+    <h2>Instructores</h2>
+    <div class="team-grid">${S.data.instructores.map(p => `<div class="team-card" data-person="${esc(p.id)}" tabindex="0" role="button" aria-label="Ver perfil de ${esc(p.nombre)}">
+      ${p.foto ? `<img src="${esc(p.foto)}" alt="${esc(p.nombre)}" loading="lazy">` : `<div class="team-ph" aria-hidden="true">${esc(initials(p.nombre))}</div>`}
+      <h3>${esc(p.nombre)}</h3><p>${esc(p.titulo)}</p></div>`).join('')}</div>
+  </div></section>` : ''}`;
   bindPeople(app);
-  if ($('#heroFree')) $('#heroFree').addEventListener('click', () => buyFlow(free.id));
-  if (upcoming.length) loadOccupancy(upcoming[0].fecha, upcoming[upcoming.length - 1].fecha).then(() => {
-    const box = $('#upcoming');
-    if (box) { box.innerHTML = upcoming.map(x => slotHtml(x.slot, x.fecha, { withDate: true })).join(''); bindBooking(box, () => render()); }
-  });
 }
 
 async function pageSchedule(app) {
@@ -1055,7 +1010,7 @@ const SCHEMAS = {
 };
 
 const CONFIG_FIELDS = [
-  { k: 'nombre', l: 'Nombre del estudio' }, { k: 'lema', l: 'Lema' }, { k: 'descripcion', l: 'Descripción (portada)', t: 'textarea' },
+  { k: 'nombre', l: 'Nombre del estudio' }, { k: 'lema', l: 'Lema' }, { k: 'descripcion', l: 'Descripción (Inicio)', t: 'textarea', hint: 'Un párrafo por línea.' },
   { k: 'heroImagen', l: 'Imagen de portada', t: 'image' }, { k: 'direccion', l: 'Dirección' }, { k: 'ciudad', l: 'Ciudad' },
   { k: 'telefono', l: 'Teléfono' }, { k: 'whatsapp', l: 'WhatsApp', hint: 'Con lada de país, ej. 528711234567' }, { k: 'email', l: 'Correo' },
   { k: 'instagram', l: 'Instagram (URL)' }, { k: 'facebook', l: 'Facebook (URL)' },

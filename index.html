@@ -25,16 +25,14 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="app/styles.css?v=a0b7117086">
+  <link rel="stylesheet" href="app/styles.css?v=d7dfc1e6e0">
 </head>
 <body>
   <header class="topbar">
     <div class="wrap topbar-in">
       <a class="brand" href="#/" aria-label="Inicio">
-        <svg viewBox="0 0 40 40" class="logo" aria-hidden="true">
-          <circle cx="20" cy="20" r="18" fill="none" stroke="currentColor" stroke-width="1.6"/>
-          <path d="M20 9c4 5 4 10 0 15-4-5-4-10 0-15z" fill="currentColor" opacity=".85"/>
-          <path d="M9 22c6-1 9 1 11 6-6 1-9-1-11-6zM31 22c-6-1-9 1-11 6 6 1 9-1 11-6z" fill="currentColor" opacity=".55"/>
+        <svg viewBox="0 0 40 40" class="logo" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4">
+          <circle cx="20" cy="20" r="18"/><circle cx="20" cy="11" r="9"/><circle cx="20" cy="29" r="9"/><circle cx="11" cy="20" r="9"/><circle cx="29" cy="20" r="9"/><circle cx="20" cy="20" r="2.6"/><circle cx="20" cy="20" r=".9" fill="currentColor"/>
         </svg>
         <span id="brandName">yogacentral</span>
       </a>
@@ -46,10 +44,9 @@
         <span></span><span></span><span></span>
       </button>
       <nav class="nav" id="nav">
-        <a href="#/horarios">Horarios</a>
-        <a href="#/paquetes">Paquetes</a>
-        <a href="#/instructores">Instructores</a>
-        <a href="#/videos">Videoteca</a>
+        <a href="#/horarios"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>Horarios</a>
+        <a href="#/paquetes"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 8h13l-1 12.5h-11z"/><path d="M9 8V6.5a3 3 0 0 1 6 0V8"/></svg>Tienda</a>
+        <a href="#/videos"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M10.5 9.5l4 2.5-4 2.5z"/></svg>Videoteca</a>
         <span id="navAuth"></span>
       </nav>
     </div>
@@ -91,7 +88,7 @@
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
   <script>window.YC_API = "https://script.google.com/macros/s/AKfycbxAhzC4IYx1tq9GcATo1CWdTlhL7lHalcmgR0O2h1NqqioJNHMUPdQTb3x3fyw7qNoWmQ/exec";</script>
-  <script src="app/app.js?v=a0b7117086" defer></script>
+  <script src="app/app.js?v=d7dfc1e6e0" defer></script>
   <script>if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(e => console.warn('Sin modo sin conexión:', e.message));</script>
 </body>
 </html>

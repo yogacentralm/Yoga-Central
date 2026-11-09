@@ -860,9 +860,16 @@ function uploadPublic_(archivo, tipo) {
 
 const SEED = {
   Config: [
-    { clave: 'nombre', valor: 'yogacentral' },
+    { clave: 'nombre', valor: 'YogaCentral' },
     { clave: 'lema', valor: 'Human Care' },
-    { clave: 'descripcion', valor: 'Un espacio en el centro de Torreón para practicar yoga, meditación y sonoterapia en comunidad, a tu ritmo y con acompañamiento cercano.' },
+    { clave: 'descripcion', valor: [
+      'YogaCentral es un espacio de encuentro que te brinda el acompañamiento para conectar contigo mism@ y así, dar paso al constante crecimiento del Autocuidado Integral.',
+      'A través del descubrimiento de los beneficios que la práctica de Yoga puede proporcionar a tu cuerpo, mente, intuición, energía y conexión se da paso a la consciencia.',
+      'Aquí encontrarás sesiones de Meditación manteniéndote en el momento de Consciencia Plena o Mindfulness para tu vida diaria, un momento de detenerte. STOP!',
+      'En las sesiones de Sonoterapia conocerás la armonía perfecta para liberar tensiones, bloqueos emocionales para después lograr mayor claridad mental y serenidad emocional.',
+      'También encuentra en YogaCentral una Comunidad sintonizada en las frecuencias del bienestar, una Red de apoyo y crecimiento, el espacio perfecto para la contención.',
+      'Los maestros, terapeutas y red de servicios de salud con la mejor capacitación.',
+    ].join('\n') },
     { clave: 'direccion', valor: 'Av. Allende 614, Segundo de Cobián Centro' },
     { clave: 'ciudad', valor: 'Torreón, Coahuila' },
     { clave: 'telefono', valor: '8713300940' },
