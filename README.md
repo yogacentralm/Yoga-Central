@@ -32,7 +32,7 @@ El código no contiene el ID de la hoja, de las carpetas ni ninguna contraseña.
 
   Las únicas fotos que se amplían son las de las **instructoras**: al tocar su tarjeta, su perfil muestra la foto en grande.
 - Música: sube audios (MP3, M4A, OGG o WAV, hasta 15 MB) y elige en qué páginas suenan, incluidas *Mi cuenta* y *Mis clases*. Aparece un reproductor abajo a la izquierda. Los navegadores no permiten que la música suene sola: la persona toca ▶. Si pasa a otra página con la misma canción, sigue sonando sin cortarse. Usa música con licencia para uso comercial o libre de derechos.
-- Sitio: los **7 colores** de la página, que se ven al momento y tienen un botón para restaurar los de marca, además de nombre, textos, imagen de portada, ícono, contacto, instrucciones y link de pago, horas de cancelación y términos.
+- Sitio: los **7 colores** de la página y el **tipo de letra**: se toca una de las 16 tarjetas (*Original*, *Spa sereno*, *Galería*, *Nórdico*…) y la página cambia al momento. En *Elegir letra por separado* hay 49 letras de Google Fonts para títulos y textos. Mientras haya cambios sin guardar aparece abajo una barra con **Guardar** y **Deshacer**, y el sitio avisa antes de salir sin guardar. Además de nombre, textos, imagen de portada, ícono, contacto, instrucciones y link de pago, horas de cancelación y términos.
 
 ## Publicarlo (una sola vez)
 

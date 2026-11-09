@@ -1,9 +1,9 @@
 // Generado por dev/build.js — no editar a mano.
-const VERSION = '078bef730c';
+const VERSION = '928134995e';
 const SHELL = 'shell-' + VERSION;
 const RUNTIME = 'runtime-v1';
 const IMAGES = 'images-v1';
-const PRECACHE = ['./', './index.html', './manifest.webmanifest', './app/styles.css?v=078bef730c', './app/app.js?v=078bef730c',
+const PRECACHE = ['./', './index.html', './manifest.webmanifest', './app/styles.css?v=928134995e', './app/app.js?v=928134995e',
   './app/icons/icon-192.png', './app/icons/icon-512.png'];
 
 self.addEventListener('install', e => {

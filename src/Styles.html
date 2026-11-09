@@ -25,13 +25,14 @@
   --shadow: 0 1px 2px rgba(68,65,66,.05), 0 6px 24px rgba(74,85,101,.08);
   --serif: 'Fraunces', Georgia, serif;
   --sans: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --heading-weight: 600;   /* las tipografías de un solo peso quedan en 400 para no engrosarse */
 }
 /* Siempre claro, aunque el dispositivo esté en modo oscuro. */
 :root { color-scheme: light; }
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
 body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.55 var(--sans); -webkit-font-smoothing: antialiased; }
-h1, h2, h3 { font-family: var(--serif); font-weight: 600; line-height: 1.15; margin: 0 0 .5em; letter-spacing: -.01em; color: var(--heading); }
+h1, h2, h3 { font-family: var(--serif); font-weight: var(--heading-weight); line-height: 1.15; margin: 0 0 .5em; letter-spacing: -.01em; color: var(--heading); }
 h1 { font-size: clamp(2rem, 5vw, 3.4rem); }
 h2 { font-size: clamp(1.5rem, 3vw, 2.1rem); }
 h3 { font-size: 1.2rem; }
@@ -56,7 +57,7 @@ img { max-width: 100%; display: block; }
 /* Barra superior */
 .topbar { position: sticky; top: 0; z-index: 20; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
 .topbar-in { display: flex; align-items: center; gap: 16px; height: 64px; }
-.brand { display: flex; align-items: center; gap: 10px; color: var(--heading); text-decoration: none; font-family: var(--serif); font-size: 1.35rem; font-weight: 600; }
+.brand { display: flex; align-items: center; gap: 10px; color: var(--heading); text-decoration: none; font-family: var(--serif); font-size: 1.35rem; font-weight: var(--heading-weight); }
 .logo { width: 34px; height: 34px; color: var(--accent); }
 .nav { margin-left: auto; display: flex; align-items: center; gap: 4px; }
 .nav a { color: var(--heading); text-decoration: none; padding: 8px 12px; border-radius: 999px; font-weight: 500; font-size: .95rem; }
@@ -123,7 +124,7 @@ input[type=checkbox] { width: auto; margin-right: 8px; }
 .feature .ico { flex: none; width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; background: var(--surface); color: var(--brand); font-size: 1.3rem; box-shadow: inset 0 0 0 2px var(--accent); }
 
 /* Precios */
-.price { font-family: var(--serif); font-size: 2rem; font-weight: 600; }
+.price { font-family: var(--serif); font-size: 2rem; font-weight: var(--heading-weight); }
 .price small { font-family: var(--sans); font-size: .85rem; font-weight: 500; color: var(--muted); }
 .pkg { display: flex; flex-direction: column; }
 .pkg .btn { margin-top: auto; }
@@ -268,4 +269,34 @@ body { position: relative; }
 .page-checks .check { margin: 0; font-weight: 400; }
 .color-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
 .color-row input[type=color] { height: 42px; padding: 4px; cursor: pointer; }
+.font-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; margin-bottom: 14px; }
+@media (max-width: 480px) { .font-card { padding: 12px; } .font-card b { font-size: 1.2rem; } .font-card span { font-size: .8rem; } }
+.font-card { position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 16px 14px; border: 2px solid var(--line); border-radius: 14px; background: var(--surface); color: var(--heading); text-align: left; cursor: pointer; }
+.font-card:hover { border-color: var(--brand); }
+.font-card { min-width: 0; overflow: hidden; }
+.font-card b { font-size: 1.45rem; line-height: 1.1; padding-right: 18px; }
+.font-card span { font-size: .9rem; color: var(--ink); }
+.font-card.on { border-color: var(--brand); background: var(--brand-soft); }
+.font-card.on::after { content: '✓'; position: absolute; top: 8px; right: 10px; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; background: var(--brand); color: var(--brand-ink); font: 700 .8rem system-ui, sans-serif; }
+.font-more { margin-bottom: 8px; }
+.font-more summary { cursor: pointer; font-weight: 500; color: var(--brand-text); padding: 6px 0; }
+.save-bar { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 55; width: min(520px, calc(100% - 32px)); display: flex; align-items: center; gap: 8px; padding: 10px 10px 10px 16px; border-radius: 999px; background: var(--heading); color: #fff; box-shadow: 0 8px 30px rgba(0,0,0,.2); }
+.save-bar[hidden] { display: none; }
+body:has(.save-bar:not([hidden])) .wa-float { display: none; }
+.save-bar span { flex: 1; font-weight: 500; font-size: .92rem; }
+.save-bar .btn-ghost { color: #fff !important; border-color: rgba(255,255,255,.4); background: transparent; }
+.save-bar .btn-ghost:hover { background: rgba(255,255,255,.12); }
+.font-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+.font-col-h { display: block; font-weight: 500; font-size: .9rem; margin-bottom: 6px; }
+.font-pick { position: relative; max-height: 320px; overflow-y: auto; border: 1px solid var(--line); border-radius: 12px; padding: 4px 8px 8px; background: var(--surface); }
+.font-group { padding: 10px 4px 4px; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; }
+.font-group b { display: block; font-size: .8rem; text-transform: uppercase; letter-spacing: .08em; color: var(--heading); }
+.font-group small { font-size: .75rem; }
+.font-opt { display: flex; align-items: center; gap: 10px; margin: 0; padding: 8px; border-radius: 8px; cursor: pointer; font-weight: 400; }
+.font-opt:hover { background: var(--bg); }
+.font-opt input { width: auto; flex: none; accent-color: var(--brand); }
+.font-opt span { font-size: 1.15rem; color: var(--heading); }
+.font-opt:has(input:checked) { background: var(--brand-soft); }
+.font-sample { margin: 14px 0; padding: 18px; border-radius: 12px; background: var(--soft); }
+.font-sample p { margin: 0 0 12px; }
 </style>

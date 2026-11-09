@@ -31,6 +31,8 @@ const TABLES = {
 
 const PAGES = ['inicio', 'horarios', 'paquetes', 'instructores', 'videos', 'panel', 'instructor'];
 const COLOR_KEYS = ['colorPrimario', 'colorAcento', 'colorTitulos', 'colorTexto', 'colorFondo', 'colorSuave', 'colorBordes'];
+// Tipografías de Google Fonts elegidas en Administrar → Sitio (solo el nombre de la familia).
+const FONT_KEYS = ['fuenteTitulos', 'fuenteTexto'];
 
 // Tipos de archivo que se pueden subir, la carpeta de Drive y su límite.
 const UPLOADS = {
@@ -49,7 +51,7 @@ const ADMIN_EDITABLE = ['Instructores', 'Clases', 'Horario', 'Paquetes', 'Videos
 const PUBLIC_CONFIG = ['nombre', 'lema', 'descripcion', 'direccion', 'ciudad', 'telefono', 'whatsapp', 'email',
   'facebook', 'instagram', 'heroImagen', 'datosPago', 'linkPago', 'horasCancelacion', 'terminos', 'mapa', 'favicon',
   'pagoBanco', 'pagoTitular', 'pagoClabe', 'pagoTarjeta']
-  .concat(COLOR_KEYS);
+  .concat(COLOR_KEYS, FONT_KEYS);
 
 // ---------------------------------------------------------------------------
 // Entrada web
@@ -328,6 +330,7 @@ function saveConfig_(config) {
     if (!/^[a-zA-Z][\w]{0,40}$/.test(k)) return;
     const v = String(config[k] == null ? '' : config[k]).trim();
     if (COLOR_KEYS.indexOf(k) >= 0 && v && !/^#[0-9a-fA-F]{6}$/.test(v)) throw userError_('Color no válido: ' + v + ' (usa el formato #RRGGBB).');
+    if (FONT_KEYS.indexOf(k) >= 0 && v && !/^[A-Za-z0-9 ]{2,40}$/.test(v)) throw userError_('Tipografía no válida: ' + v);
     if (k === 'pagoClabe' && v && !/^\d{18}$/.test(v.replace(/\s/g, ''))) throw userError_('La CLABE debe tener 18 dígitos.');
     if (k === 'pagoTarjeta' && v && !/^\d{15,16}$/.test(v.replace(/[\s-]/g, ''))) throw userError_('El número de tarjeta debe tener 16 dígitos.');
     if (k in current) update_('Config', k, { valor: v });
@@ -838,6 +841,8 @@ const SEED = {
     { clave: 'colorFondo', valor: '#FCFCFC' },
     { clave: 'colorSuave', valor: '#DEE9D5' },
     { clave: 'colorBordes', valor: '#E5E7EB' },
+    { clave: 'fuenteTitulos', valor: 'Fraunces' },
+    { clave: 'fuenteTexto', valor: 'Inter' },
     { clave: 'terminos', valor: [
       'Salud: consulta a tu médico antes de iniciar y avisa a tu instructora de cualquier lesión o condición. Cada persona practica bajo su propia responsabilidad.',
       'Paquetes: son personales, no transferibles y no reembolsables. La vigencia corre desde que se aprueba el pago.',

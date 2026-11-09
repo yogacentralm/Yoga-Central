@@ -178,6 +178,7 @@ function formData(form) {
       if (el.checked) o[el.name] = o[el.name] ? o[el.name] + ',' + el.value : el.value;
       return;
     }
+    if (el.type === 'radio') { if (el.checked) o[el.name] = el.value; return; }
     o[el.name] = el.type === 'checkbox' ? el.checked : el.value;
   });
   return o;
@@ -246,6 +247,67 @@ function applyTheme(c) {
     if (/^#[0-9a-f]{6}$/i.test(c[k] || '')) root.setProperty(THEME[k], c[k]);
     else root.removeProperty(THEME[k]);
   });
+}
+
+// Tipografías de Administrar → Sitio (Google Fonts): familia, grupo y pesos que existen en Google Fonts.
+// Pedir un peso que la familia no tiene hace fallar la hoja de estilos completa.
+const FONT_GROUPS = [
+  ['elegante', 'Elegantes', 'Finas, como de galería o spa'],
+  ['lectura', 'Clásicas', 'Cálidas y fáciles de leer'],
+  ['geometrica', 'Modernas y limpias', 'Minimalistas, como de diseño de interiores'],
+  ['neutra', 'Sencillas', 'Discretas y muy claras en el celular'],
+  ['suave', 'Redondas', 'Suaves y amables'],
+];
+const FONTS = [
+  ['Fraunces', 'elegante', '400;600'], ['Cormorant Garamond', 'elegante', '400;600'], ['Italiana', 'elegante', '400'],
+  ['Marcellus', 'elegante', '400'], ['Cinzel', 'elegante', '400;600'], ['Bodoni Moda', 'elegante', '400;600'],
+  ['Playfair Display', 'elegante', '400;600'], ['DM Serif Display', 'elegante', '400'], ['Gilda Display', 'elegante', '400'],
+  ['Prata', 'elegante', '400'], ['Bellefair', 'elegante', '400'], ['Forum', 'elegante', '400'], ['Young Serif', 'elegante', '400'],
+  ['Lora', 'lectura', '400;500;600'], ['EB Garamond', 'lectura', '400;500;600'], ['Newsreader', 'lectura', '400;500;600'],
+  ['Spectral', 'lectura', '400;500;600'], ['Libre Baskerville', 'lectura', '400;700'],
+  ['Jost', 'geometrica', '400;500;600'], ['Montserrat', 'geometrica', '400;500;600'], ['Josefin Sans', 'geometrica', '400;500;600'],
+  ['Raleway', 'geometrica', '400;500;600'], ['Poppins', 'geometrica', '400;500;600'], ['Outfit', 'geometrica', '400;500;600'],
+  ['Urbanist', 'geometrica', '400;500;600'], ['Kumbh Sans', 'geometrica', '400;500;600'], ['Sora', 'geometrica', '400;500;600'],
+  ['Albert Sans', 'geometrica', '400;500;600'], ['Lexend', 'geometrica', '400;500;600'], ['Tenor Sans', 'geometrica', '400'],
+  ['Questrial', 'geometrica', '400'], ['Didact Gothic', 'geometrica', '400'],
+  ['Inter', 'neutra', '400;500;600'], ['DM Sans', 'neutra', '400;500;600'], ['Manrope', 'neutra', '400;500;600'],
+  ['Work Sans', 'neutra', '400;500;600'], ['Figtree', 'neutra', '400;500;600'], ['Karla', 'neutra', '400;500;600'],
+  ['Mulish', 'neutra', '400;500;600'], ['Lato', 'neutra', '400;700'], ['Open Sans', 'neutra', '400;500;600'],
+  ['Plus Jakarta Sans', 'neutra', '400;500;600'], ['Hanken Grotesk', 'neutra', '400;500;600'], ['Nunito Sans', 'neutra', '400;500;600'],
+  ['Red Hat Text', 'neutra', '400;500;600'],
+  ['Quicksand', 'suave', '400;500;600'], ['Nunito', 'suave', '400;500;600'], ['Comfortaa', 'suave', '400;500;600'],
+  ['Varela Round', 'suave', '400'],
+].map(f => ({ name: f[0], group: f[1], weights: f[2],
+  // Las de exhibición y las de un solo peso no sirven para párrafos y botones.
+  body: f[1] !== 'elegante' && f[2] !== '400', head: /600/.test(f[2]) ? 600 : 400 }));
+const BRAND_FONTS = { fuenteTitulos: 'Fraunces', fuenteTexto: 'Inter' };
+// Combinaciones listas: [nombre, títulos, textos].
+const FONT_PAIRS = [['Original', 'Fraunces', 'Inter'], ['Spa sereno', 'Cormorant Garamond', 'Jost'], ['Galería', 'Italiana', 'Montserrat'],
+  ['Nórdico', 'Josefin Sans', 'Mulish'], ['Editorial', 'Playfair Display', 'Lato'], ['Templo', 'Marcellus', 'Nunito Sans'],
+  ['Zen', 'Tenor Sans', 'Karla'], ['Boutique', 'Bodoni Moda', 'DM Sans'], ['Natural', 'Lora', 'Quicksand'],
+  ['Museo', 'Cinzel', 'Raleway'], ['Lino', 'Gilda Display', 'Figtree'], ['Piedra', 'Bellefair', 'Manrope'],
+  ['Clásico', 'EB Garamond', 'Work Sans'], ['Moderno', 'Outfit', 'Inter'], ['Minimal', 'Jost', 'Jost'], ['Suave', 'Comfortaa', 'Nunito']];
+const FONT_SAMPLE = 'Respira y fluye';
+const fontInfo = name => FONTS.find(f => f.name === name);
+const fontStack = f => "'" + f.name + "', " + (f.group === 'elegante' || f.group === 'lectura' ? 'Georgia, serif' : "system-ui, -apple-system, 'Segoe UI', sans-serif");
+const FONTS_CSS = 'https://fonts.googleapis.com/css2?';
+const fontParam = (f, weights) => 'family=' + f.name.replace(/ /g, '+') + (weights ? ':wght@' + f.weights : '');
+function fontLink(id, href) {
+  let el = document.getElementById(id);
+  if (!href) { if (el) el.remove(); return; }
+  if (!el) { el = document.createElement('link'); el.id = id; el.rel = 'stylesheet'; document.head.appendChild(el); }
+  if (el.getAttribute('href') !== href) el.href = href;
+}
+function applyFonts(c) {
+  const t = fontInfo(c.fuenteTitulos) || fontInfo(BRAND_FONTS.fuenteTitulos);
+  const x = (fontInfo(c.fuenteTexto) || {}).body ? fontInfo(c.fuenteTexto) : fontInfo(BRAND_FONTS.fuenteTexto);
+  const root = document.documentElement.style;
+  root.setProperty('--serif', fontStack(t));
+  root.setProperty('--sans', fontStack(x));
+  root.setProperty('--heading-weight', t.head);
+  // Las de marca ya vienen en Index; las demás se piden a Google Fonts.
+  const need = [t, x].filter((f, i, a) => a.indexOf(f) === i && f.name !== BRAND_FONTS.fuenteTitulos && f.name !== BRAND_FONTS.fuenteTexto);
+  fontLink('siteFonts', need.length ? FONTS_CSS + need.map(f => fontParam(f, true)).join('&') + '&display=swap' : '');
 }
 
 // ---------------------------------------------------------------------------
@@ -333,10 +395,17 @@ const ROUTES = {
   admin: pageAdmin,
 };
 
+// Hay colores o letras sin guardar en Administrar → Sitio: no se repinta por detrás.
+const editingSite = () => !!(S.leaveGuard && $('#saveBar') && !$('#saveBar').hidden);
 function go(path) { location.hash = '#/' + path; }
 function currentRoute() { return location.hash.replace(/^#\/?/, '').split('/'); }
 
 async function render() {
+  if (S.leaveGuard) {
+    if (!S.leaveGuard()) { history.replaceState(null, '', S.guardHash); return; }
+    S.leaveGuard = null;
+  }
+  S.guardHash = location.hash;
   const [name, sub] = currentRoute();
   const page = ROUTES[name] || pageHome;
   $('#nav').classList.remove('open');
@@ -368,7 +437,7 @@ function renderNav() {
 
 function renderChrome() {
   const c = cfg();
-  applyTheme(c);
+  if (!editingSite()) { applyTheme(c); applyFonts(c); }
   $('#brandName').textContent = c.nombre || 'yogacentral';
   document.title = c.nombre || 'yogacentral';
   const wa = waLink();
@@ -1008,6 +1077,16 @@ const COLOR_FIELDS = [
   { k: 'colorBordes', l: 'Bordes y separadores', t: 'color' },
 ].map(f => Object.assign(f, { def: BRAND_COLORS[f.k] }));
 
+function fontPicker(k, label, value, forBody) {
+  const list = FONTS.filter(f => !forBody || f.body);
+  return `<div class="font-col"><span class="font-col-h">${label}</span><div class="font-pick" data-pick="${k}">${FONT_GROUPS.map(g => {
+    const fs = list.filter(f => f.group === g[0]);
+    return fs.length ? `<div class="font-group"><b>${g[1]}</b><small class="muted">${g[2]}</small></div>` + fs.map(f => `<label class="font-opt">
+      <input type="radio" name="${k}" value="${esc(f.name)}" ${f.name === value ? 'checked' : ''}>
+      <span style="font-family:${esc(fontStack(f))}">${esc(f.name)}</span></label>`).join('') : '';
+  }).join('')}</div></div>`;
+}
+
 async function admList(tabla, force) {
   if (force || !S.adm[tabla]) S.adm[tabla] = await call('admin.list', { tabla });
   return S.adm[tabla];
@@ -1262,11 +1341,25 @@ function adminSite(box) {
     <h2>Colores</h2><p class="muted small">Los cambios se ven al momento; se publican al tocar <b>Guardar cambios</b>.</p>
     <div class="color-row">${COLOR_FIELDS.map(f => fieldHtml(f, c[f.k] || BRAND_COLORS[f.k])).join('')}</div>
     <p><button class="btn btn-ghost btn-sm" type="button" id="resetColors">Restaurar colores de marca</button></p>
+    <h2 style="margin-top:28px">Tipo de letra</h2>
+    <p class="muted small">Toca la que más te guste: la página cambia al momento. Luego toca <b>Guardar</b>.</p>
+    <div class="font-cards">${FONT_PAIRS.map((p, i) => `<button type="button" class="font-card" data-pair="${i}" aria-pressed="false">
+      <b style="font-family:${esc(fontStack(fontInfo(p[1])))};font-weight:400">${esc(p[0])}</b>
+      <span style="font-family:${esc(fontStack(fontInfo(p[2])))}">${FONT_SAMPLE}</span></button>`).join('')}</div>
+    <details class="font-more"><summary>Elegir letra por separado</summary>
+      <p class="muted small">Una letra para los títulos y otra para los textos y botones.</p>
+      <div class="font-cols">${fontPicker('fuenteTitulos', 'Títulos', fontInfo(c.fuenteTitulos) ? c.fuenteTitulos : BRAND_FONTS.fuenteTitulos)}
+        ${fontPicker('fuenteTexto', 'Textos y botones', (fontInfo(c.fuenteTexto) || {}).body ? c.fuenteTexto : BRAND_FONTS.fuenteTexto, true)}</div>
+      <div class="font-sample"><h3>Vinyasa al amanecer</h3><p>Respira, suelta y fluye. Una práctica suave para empezar el día con calma y presencia.</p>
+        <span class="btn btn-primary btn-sm">Reservar clase</span></div>
+    </details>
     <h2 style="margin-top:28px">Datos para recibir pagos</h2>
     <p class="muted small">Los alumnos los ven al comprar un paquete y pueden copiar la CLABE con un toque.</p>
     <div class="form-grid">${PAY_FIELDS.map(f => fieldHtml(f, c[f.k] || '')).join('')}</div>
     <h2 style="margin-top:28px">Datos del sitio</h2><div class="form-grid">${CONFIG_FIELDS.map(f => fieldHtml(f, c[f.k] || '')).join('')}</div>
-    <button class="btn btn-primary" type="submit">Guardar cambios</button></form>`;
+    <button class="btn btn-primary" type="submit">Guardar cambios</button>
+    <div class="save-bar" id="saveBar" hidden><span>Cambios sin guardar</span>
+      <button class="btn btn-ghost btn-sm" type="button" id="undoSite">Deshacer</button><button class="btn btn-primary btn-sm" type="submit">Guardar</button></div></form>`;
   bindUploads(box);
   const form = $('#cfgForm', box);
   $$('input[type=color]', form).forEach(inp => inp.addEventListener('input', () => applyTheme(Object.assign({}, cfg(), formData(form)))));
@@ -1274,9 +1367,52 @@ function adminSite(box) {
     Object.keys(BRAND_COLORS).forEach(k => { form[k].value = BRAND_COLORS[k]; });
     applyTheme(Object.assign({}, cfg(), BRAND_COLORS));
   });
+  // Muestra cada opción con su propia letra: Google Fonts solo envía las letras que se usan aquí.
+  fontLink('previewFonts', FONTS_CSS + FONTS.map(f => fontParam(f)).join('&')
+    + '&text=' + encodeURIComponent(FONTS.map(f => f.name).join('') + FONT_PAIRS.map(p => p[0]).join('') + FONT_SAMPLE) + '&display=swap');
+  // Cambios sin guardar: barra fija con Guardar y aviso al salir de la página.
+  let saved = JSON.stringify(formData(form));
+  const dirty = () => JSON.stringify(formData(form)) !== saved;
+  const syncBar = () => { $('#saveBar', form).hidden = !dirty(); };
+  form.addEventListener('input', syncBar);
+  form.addEventListener('change', syncBar);
+  const revert = () => { applyTheme(cfg()); applyFonts(cfg()); };
+  S.leaveGuard = () => {
+    if (!form.isConnected || !dirty()) return true;
+    if (!confirm('Tienes cambios sin guardar en Sitio. ¿Salir sin guardarlos?')) return false;
+    revert();
+    return true;
+  };
+  $('#undoSite', form).addEventListener('click', () => { revert(); adminSite(box); });
+  const syncFonts = scroll => {
+    const d = formData(form);
+    applyFonts(Object.assign({}, cfg(), d));
+    $$('[data-pair]', form).forEach(b => {
+      const p = FONT_PAIRS[b.dataset.pair], on = p[1] === d.fuenteTitulos && p[2] === d.fuenteTexto;
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-pressed', on);
+    });
+    syncBar();
+    // Lleva la opción elegida a la vista dentro de su lista, sin mover la página.
+    if (scroll) $$('[data-pick]', form).forEach(box => { const on = $('input:checked', box); if (on) box.scrollTop = on.parentNode.offsetTop - box.clientHeight / 3; });
+  };
+  const setFonts = (t, x) => {
+    $$('input[type=radio]', form).forEach(inp => { if (inp.name === 'fuenteTitulos') inp.checked = inp.value === t; if (inp.name === 'fuenteTexto') inp.checked = inp.value === x; });
+    syncFonts(true);
+  };
+  $$('input[type=radio]', form).forEach(inp => inp.addEventListener('change', () => syncFonts(false)));
+  $$('[data-pair]', form).forEach(b => b.addEventListener('click', () => { const p = FONT_PAIRS[b.dataset.pair]; setFonts(p[1], p[2]); }));
+  syncFonts(true);
   form.addEventListener('submit', e => {
     e.preventDefault();
-    busy($('button[type=submit]', e.target), async () => { await call('admin.saveConfig', { config: formData(e.target) }); await refreshPublic(); toast('Sitio actualizado.'); }).catch(() => {});
+    busy(e.submitter || $('button[type=submit]', e.target), async () => {
+      const data = formData(e.target);
+      await call('admin.saveConfig', { config: data });
+      saved = JSON.stringify(data);
+      syncBar();
+      await refreshPublic();
+      toast('¡Listo! Cambios guardados.');
+    }).catch(() => {});
   });
 }
 
@@ -1427,6 +1563,7 @@ $('#menuBtn').addEventListener('click', () => {
   $('#menuBtn').setAttribute('aria-expanded', String(open));
 });
 window.addEventListener('hashchange', render);
+window.addEventListener('beforeunload', e => { if (editingSite()) e.preventDefault(); });
 
 // Arranque inmediato con lo guardado de la visita anterior; los datos frescos llegan después
 // y solo se vuelve a dibujar si cambiaron y la persona no está llenando un formulario.
@@ -1466,7 +1603,7 @@ async function refreshBootstrap() {
   try {
     const changed = await refreshBootstrap();
     const typing = document.activeElement && document.activeElement.closest && document.activeElement.closest('form');
-    if (!hit || (changed && $('#modal').hidden && !typing)) { renderChrome(); renderNav(); render(); }
+    if (!hit || (changed && $('#modal').hidden && !typing && !editingSite())) { renderChrome(); renderNav(); render(); }
     else { renderChrome(); renderNav(); }
   } catch (e) {
     if (!hit) return showBootError(e);
@@ -1475,5 +1612,5 @@ async function refreshBootstrap() {
   initInstall();
 })();
 
-window.addEventListener('online', () => { setOffline(false); refreshBootstrap().then(changed => { if (changed && $('#modal').hidden) { renderChrome(); renderNav(); render(); } }).catch(() => null); });
+window.addEventListener('online', () => { setOffline(false); refreshBootstrap().then(changed => { if (changed && $('#modal').hidden && !editingSite()) { renderChrome(); renderNav(); render(); } }).catch(() => null); });
 window.addEventListener('offline', () => setOffline(true));
