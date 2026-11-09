@@ -1140,6 +1140,7 @@ async function adminCrud(box, tabla) {
 
 async function refreshPublic() {
   S.data = await call('public.bootstrap');
+  saved.set('yc_boot', Object.assign({}, S.data, { user: null, ahora: '' }));
   S.adm = {};
   renderChrome();
 }

@@ -223,7 +223,7 @@ function resetRequestCache_() {
 
 // Lo que ve cualquier visitante se guarda en CacheService unos minutos; se borra al editarlo.
 const PUBLIC_TABLES = ['Config', 'Instructores', 'Clases', 'Horario', 'Paquetes', 'Videos', 'Galeria', 'Musica'];
-const PUBLIC_CACHE_KEY = 'pub_v1';
+const PUBLIC_CACHE_KEY = 'pub_v2'; // v1 pudo guardar horas mal leídas
 function touched_(name) {
   delete ROWS_[name];
   if (PUBLIC_TABLES.indexOf(name) >= 0) cache_().remove(PUBLIC_CACHE_KEY);
@@ -245,7 +245,17 @@ function sheet_(name) {
   return sh;
 }
 
+// Hojas de cálculo convierten "20:15", "2026-11-09" o números largos a hora, fecha o número
+// si la celda no tiene formato de texto. Al leer se regresan al texto que usa la app.
+const DATE_ONLY = ['fecha', 'inicio', 'vence'];
+let SHEET_TZ_ = null;
+function sheetTz_() { return SHEET_TZ_ || (SHEET_TZ_ = db_().getSpreadsheetTimeZone() || TZ); }
+
 function parse_(key, v) {
+  if (Object.prototype.toString.call(v) === '[object Date]') {
+    const fmt = key === 'hora' || v.getFullYear() < 1900 ? 'HH:mm' : DATE_ONLY.indexOf(key) >= 0 ? 'yyyy-MM-dd' : 'yyyy-MM-dd HH:mm';
+    v = Utilities.formatDate(v, sheetTz_(), fmt);
+  }
   if (NUMERIC.indexOf(key) >= 0) return v === '' || v === null ? 0 : Number(v);
   if (BOOLEAN.indexOf(key) >= 0) return v === true || String(v).toUpperCase() === 'TRUE';
   return v === null || v === undefined ? '' : String(v);
@@ -255,8 +265,9 @@ function serialize_(v) {
   if (v === undefined || v === null) return '';
   if (typeof v === 'boolean') return v ? 'TRUE' : 'FALSE';
   const s = String(v);
-  // Evita que un texto se interprete como fórmula.
-  return /^[=+\-@]/.test(s) ? "'" + s : s;
+  // El apóstrofo guarda el valor como texto: evita fórmulas y que Hojas de cálculo convierta
+  // horas, fechas o números largos (CLABE, tarjeta) y los regrese distintos.
+  return /^[=+\-@]/.test(s) || /^(\d{1,2}:\d{2}(:\d{2})?|\d{4}-\d{2}-\d{2}( \d{1,2}:\d{2}(:\d{2})?)?|0\d+|\d{11,})$/.test(s) ? "'" + s : s;
 }
 
 function rows_(name) {

@@ -31,13 +31,32 @@ const cache = new Map();
 const save = () => fs.writeFileSync(DATA_FILE, JSON.stringify(state));
 
 // ---------------------------------------------------------------- mocks
-const toCell = v => (typeof v === 'string' && v.startsWith("'") ? v.slice(1) : v == null ? '' : String(v));
+// Como Hojas de cálculo sin formato de texto: "20:15" se vuelve hora, "2026-11-09" fecha y los
+// números largos pierden precisión, salvo que el valor empiece con apóstrofo.
+const TZ = 'America/Mexico_City';
+function sheetTime(h, m) {
+  const guess = new Date(Date.UTC(1899, 11, 30, h, m));
+  const [gh, gm] = formatDate(guess, TZ, 'HH:mm').split(':').map(Number);
+  return new Date(guess.getTime() - ((gh * 60 + gm) - (h * 60 + m)) * 60000);
+}
+function toCell(v) {
+  if (v == null) return '';
+  if (typeof v === 'string' && v.startsWith("'")) return v.slice(1);
+  const s = String(v);
+  let m = /^(\d{1,2}):(\d{2})$/.exec(s);
+  if (m) return { __date: sheetTime(+m[1], +m[2]).toISOString() };
+  m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (m) return { __date: sheetTime(0, 0).toISOString().replace(/^1899-12-30/, s) };
+  if (/^\d{11,}$/.test(s)) return Number(s);
+  return s;
+}
+const fromCell = v => (v && typeof v === 'object' && v.__date ? new Date(v.__date) : v);
 
 function makeSheet(name) {
   const rows = () => state.sheets[name];
   const sheet = {
     getName: () => name,
-    getDataRange: () => ({ getValues: () => rows().map(r => r.slice()) }),
+    getDataRange: () => ({ getValues: () => rows().map(r => r.map(fromCell)) }),
     appendRow: r => { rows().push(r.map(toCell)); return sheet; },
     deleteRow: i => { rows().splice(i - 1, 1); return sheet; },
     setFrozenRows: () => sheet,
@@ -45,7 +64,7 @@ function makeSheet(name) {
     getLastColumn: () => (rows()[0] || []).length,
     getRange: (r, c, nr, nc) => {
       const rng = {
-        getValues: () => rows().slice(r - 1, r - 1 + nr).map(row => Array.from({ length: nc }, (_, j) => (row[c - 1 + j] == null ? '' : row[c - 1 + j]))),
+        getValues: () => rows().slice(r - 1, r - 1 + nr).map(row => Array.from({ length: nc }, (_, j) => (row[c - 1 + j] == null ? '' : fromCell(row[c - 1 + j])))),
         setNumberFormat: () => rng,
         setFontWeight: () => rng,
         setValues: vals => {
@@ -66,6 +85,7 @@ function makeSheet(name) {
 const spreadsheet = id => ({
   getId: () => id,
   getUrl: () => 'http://localhost:' + PORT + '/__db',
+  getSpreadsheetTimeZone: () => TZ,
   getSheetByName: n => (state.sheets[n] ? makeSheet(n) : null),
   insertSheet: n => { state.sheets[n] = []; return makeSheet(n); },
   getSheets: () => Object.keys(state.sheets).map(makeSheet),
