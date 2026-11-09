@@ -483,12 +483,15 @@ function slotHtml(s, fecha, opts) {
   const past = fecha + ' ' + s.hora <= nowMx();
   const taken = S.occ[s.id + '|' + fecha] || 0;
   const free = s.cupo > 0 ? Math.max(0, s.cupo - taken) : null;
-  const action = past ? '<span class="muted small">Terminó</span>'
+  const mine = opts && opts.mine;
+  const cancelable = mine && fecha + ' ' + s.hora > nowMx();
+  const action = mine ? `<span class="tag tag-ok">Reservada</span>${cancelable ? ` <button class="btn btn-ghost btn-sm" data-cancel="${esc(mine.id)}">Cancelar</button>` : ''}`
+    : past ? '<span class="muted small">Terminó</span>'
     : free === 0 ? '<span class="tag tag-bad">Lleno</span>'
     : `<button class="btn btn-primary btn-sm" data-book="${esc(s.id)}" data-date="${fecha}">Reservar</button>`;
   return `<div class="slot ${past ? 'past' : ''}">
     <div class="time">${fmtTime(s.hora)}</div>
-    <div><b>${esc(c.nombre || 'Clase')}</b>
+    <div><b>${s.modalidad === 'en línea' ? micon(MI.screen) : micon(MI.home)}${esc(c.nombre || 'Clase')}</b>
       <div class="meta">${esc(ins.nombre || '')} · ${s.duracion} min · ${esc(s.sala)}${s.modalidad === 'en línea' ? ' · en línea' : ''}
       ${opts && opts.withDate ? ' · ' + fmtDate(fecha, true) : ''}
       ${free !== null && !past ? ` · <span class="${free <= 3 ? 'tag tag-warn' : ''}">${free} lugar${free === 1 ? '' : 'es'}</span>` : ''}</div></div>
@@ -673,7 +676,7 @@ function buyFlow(paqueteId) {
       await call('me.buy', { paqueteId, nota: $('input[name=nota]', e.target).value, archivo });
       closeModal();
       toast(archivo ? 'Recibimos tu comprobante. Te avisaremos al validarlo.' : 'Solicitud creada. Sube tu comprobante desde “Mi cuenta”.');
-      go('panel/compras');
+      go('panel/pagos');
     }).catch(() => {});
   });
   bindCopy(body);
@@ -816,69 +819,173 @@ function stateTag(estado) {
 
 async function pageMember(app, tab) {
   if (!S.user) { S.returnTo = 'panel'; return go('entrar'); }
-  tab = tab || 'resumen';
+  // Nombres anteriores de las secciones.
+  tab = { resumen: 'calendario', compras: 'pagos' }[tab] || tab || 'calendario';
+  if (!MEMBER_MENU.some(m => m[0] === tab)) tab = 'calendario';
   app.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
   const d = await cachedCall('me.dashboard', {}, 'yc_dash_' + S.user.id);
   S.user = d.user;
-  const now = nowMx();
-  const upcoming = d.reservas.filter(r => r.estado === 'reservada' && r.fecha >= todayMx())
-    .map(r => Object.assign(r, { slot: byId(S.data.horario, r.horarioId) }))
-    .sort((a, b) => (a.fecha + a.slot.hora) < (b.fecha + b.slot.hora) ? -1 : 1);
-  const unlimited = d.activos.some(c => c.clasesTotal === 0);
-  const left = d.activos.reduce((s, c) => s + (c.clasesTotal - c.clasesUsadas), 0);
-  const canCancel = r => r.estado === 'reservada' && r.slot && (r.fecha + ' ' + r.slot.hora) > now;
-  const resRow = r => {
-    const s = r.slot || byId(S.data.horario, r.horarioId);
-    return `<tr><td>${fmtDate(r.fecha, true)}</td><td>${fmtTime(s.hora)}</td><td>${esc(clase(s.claseId).nombre || '—')}</td>
-      <td>${stateTag(r.estado)}</td><td>${canCancel(Object.assign({ slot: s }, r)) ? `<button class="btn btn-danger btn-sm" data-cancel="${esc(r.id)}">Cancelar</button>` : ''}</td></tr>`;
-  };
-  const tabs = { resumen: 'Resumen', reservas: 'Mis reservas', compras: 'Mis paquetes', perfil: 'Perfil' };
-  let html = `<div class="wrap"><div class="panel-head"><h1>Hola, ${esc(d.user.nombre.split(' ')[0])}</h1></div>
-    <div class="tabs">${Object.keys(tabs).map(k => `<button class="${k === tab ? 'on' : ''}" data-tab="${k}">${tabs[k]}</button>`).join('')}</div>`;
+  const c = cfg();
+  app.innerHTML = `<div class="member-head"><div class="wrap member-head-in">
+      <a class="member-me" href="#/panel/perfil"><span class="avatar-sm">${esc(initials(d.user.nombre))}</span>
+      <span><b>${esc(d.user.nombre.split(' ')[0])}</b><small>${esc(PANEL_ROLE[d.user.rol] || 'Estudiante')}</small></span></a>
+    </div></div>
+    <div class="wrap member">
+      <aside class="member-side"><h3>${esc(c.nombre || 'YogaCentral')}</h3>
+        <nav>${MEMBER_MENU.map(m => `<a href="#/panel/${m[0]}" class="${m[0] === tab ? 'on' : ''}">${micon(m[2])}${m[1]}</a>`).join('')}
+          <a href="#/">${micon(MI.home)}Website</a>
+          <button type="button" id="logout">${micon(MI.logout)}Cerrar sesión</button></nav>
+      </aside>
+      <section class="member-main" id="memberMain"></section>
+    </div>`;
+  $('#logout', app).addEventListener('click', async () => { await call('auth.logout').catch(() => null); setSession(null); go(''); });
+  const main = $('#memberMain', app);
+  const views = { calendario: memberCalendar, videos: memberVideos, reservas: memberBookings, paquetes: memberPackages,
+    pagos: memberPayments, asistencias: memberAttendance, tienda: memberShop, perfil: memberProfile };
+  await views[tab](main, d);
+}
 
-  if (tab === 'resumen') {
-    html += `<div class="grid grid-2">
-      <div class="balance"><span>Clases disponibles</span><b>${unlimited ? 'Ilimitadas' : left}</b>
-        <span>${d.activos.length ? 'Vigente hasta el ' + fmtDate(d.activos[d.activos.length - 1].vence) : 'Sin paquete vigente'}</span>
-        <div class="row" style="margin-top:16px"><a class="btn btn-ghost" style="background:#fff;color:#2b2a27!important" href="#/horarios">Reservar clase</a>
-        <a class="btn btn-ghost" style="border-color:rgba(255,255,255,.6);color:inherit!important" href="#/paquetes">Comprar paquete</a></div></div>
-      <div class="card"><h3>Próximas clases</h3>${upcoming.length ? upcoming.slice(0, 4).map(r => `<div class="row" style="padding:8px 0;border-bottom:1px solid var(--line)">
-        <div><b>${esc(clase(r.slot.claseId).nombre)}</b><div class="muted small">${fmtDate(r.fecha, true)} · ${fmtTime(r.slot.hora)}</div></div><span class="spacer"></span>
-        ${canCancel(r) ? `<button class="btn btn-danger btn-sm" data-cancel="${esc(r.id)}">Cancelar</button>` : ''}</div>`).join('') : '<p class="muted">No tienes clases reservadas.</p>'}</div>
-    </div>
-    ${d.compras.some(c => c.estado === 'pendiente') ? '<div class="card" style="margin-top:18px"><b>Tienes un pago en revisión.</b> <span class="muted">Lo validamos lo antes posible.</span> <a href="#/panel/compras">Ver detalle</a></div>' : ''}`;
-  } else if (tab === 'reservas') {
-    html += d.reservas.length ? `<div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Hora</th><th>Clase</th><th>Estado</th><th></th></tr></thead>
-      <tbody>${d.reservas.map(resRow).join('')}</tbody></table></div>` : '<div class="empty card">Aún no tienes reservas. <a href="#/horarios">Ver horario</a></div>';
-  } else if (tab === 'compras') {
-    html += d.compras.length ? `<div class="table-wrap"><table><thead><tr><th>Paquete</th><th>Precio</th><th>Estado</th><th>Clases</th><th>Vigencia</th><th>Comprobante</th></tr></thead>
-      <tbody>${d.compras.map(c => `<tr><td>${esc(c.paquete)}</td><td>${money(c.precio)}</td><td>${stateTag(c.estado)}${c.estado === 'rechazado' && c.nota ? `<div class="small muted">${esc(c.nota)}</div>` : ''}</td>
-        <td>${c.clasesTotal === 0 ? 'Ilimitadas' : c.clasesUsadas + ' / ' + c.clasesTotal}</td>
-        <td>${c.vence ? fmtDate(c.inicio) + ' – ' + fmtDate(c.vence) : '—'}</td>
-        <td>${c.estado === 'pendiente' ? (c.comprobante ? '<span class="tag">Enviado</span> ' : '') + `<button class="btn btn-ghost btn-sm" data-receipt="${esc(c.id)}">${c.comprobante ? 'Reemplazar' : 'Subir'}</button>` : (c.comprobante ? 'Enviado' : '—')}</td></tr>`).join('')}</tbody></table></div>`
-      : '<div class="empty card">Aún no tienes paquetes. <a href="#/paquetes">Ver paquetes</a></div>';
-  } else {
-    html += `<div class="grid grid-2">
-      <form class="card" id="profileForm"><h3>Mis datos</h3>
-        <label><span>Nombre</span><input name="nombre" value="${esc(d.user.nombre)}" required></label>
-        <label><span>Teléfono</span><input name="telefono" value="${esc(d.user.telefono)}"></label>
-        <label><span>Correo</span><input value="${esc(d.user.email)}" disabled></label>
-        <button class="btn btn-primary" type="submit">Guardar</button></form>
-      <form class="card" id="passForm"><h3>Cambiar contraseña</h3>
-        <label><span>Contraseña actual</span>${pwdInput('actual', 'required autocomplete="current-password"')}</label>
-        <label><span>Nueva contraseña</span>${pwdInput('nueva', 'minlength="8" required autocomplete="new-password"')}</label>
-        <button class="btn btn-primary" type="submit">Actualizar</button></form>
-    </div>
-    <p style="margin-top:24px"><button class="btn btn-ghost" id="logout">Cerrar sesión</button></p>`;
-  }
-  app.innerHTML = html + '</div>';
+const PANEL_ROLE = { alumno: 'Estudiante', instructor: 'Instructora', admin: 'Administrador' };
+// Íconos de línea del panel del alumno (24 × 24).
+const MI = {
+  cal: '<rect x="3.5" y="5" width="17" height="15.5" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
+  film: '<rect x="3" y="5" width="18" height="14" rx="1.5"/><path d="M7 5v14M17 5v14M3 9.5h4M3 14.5h4M17 9.5h4M17 14.5h4"/>',
+  check: '<rect x="3.5" y="5" width="17" height="15.5" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4M9 15l2 2 4-4"/>',
+  bag: '<path d="M5.5 8h13l-1 12.5h-11z"/><path d="M9 8V6.5a3 3 0 0 1 6 0V8"/>',
+  money: '<rect x="3" y="6" width="18" height="12" rx="1.5"/><circle cx="12" cy="12" r="2.5"/><path d="M6.5 9.5v5M17.5 9.5v5"/>',
+  list: '<path d="M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01"/>',
+  cart: '<path d="M3 4h2.5l2.2 10.5h10.6L20.5 7H6.4"/><circle cx="9" cy="19" r="1.3"/><circle cx="17" cy="19" r="1.3"/>',
+  user: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="10" r="3"/><path d="M6.6 18.4a6.5 6.5 0 0 1 10.8 0"/>',
+  home: '<path d="M4 11l8-7 8 7M6 9.5V20h12V9.5"/>',
+  logout: '<path d="M14 17l5-5-5-5M19 12H8.5M10 3.5H5.5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2H10"/>',
+  screen: '<rect x="3" y="4" width="18" height="12" rx="1.5"/><path d="M8 20h8M12 16v4"/>',
+  scale: '<path d="M12 4v16M7 20h10M5 7h14M5 7l-2.5 6a2.5 2.5 0 0 0 5 0zM19 7l-2.5 6a2.5 2.5 0 0 0 5 0z"/>',
+  day: '<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/>',
+  filter: '<path d="M4 5h16l-6 7.5V19l-4-2v-4.5z"/>',
+  prev: '<path d="M15 5l-7 7 7 7"/>',
+  next: '<path d="M9 5l7 7-7 7"/>',
+};
+const micon = p => `<svg class="mi" viewBox="0 0 24 24" aria-hidden="true">${p}</svg>`;
+const MEMBER_MENU = [['calendario', 'Calendario', MI.cal], ['videos', 'Videoteca', MI.film], ['reservas', 'Mis reservaciones', MI.check],
+  ['paquetes', 'Mis paquetes', MI.bag], ['pagos', 'Historial de pagos', MI.money], ['asistencias', 'Reporte de asistencias', MI.list],
+  ['tienda', 'Tienda', MI.cart], ['perfil', 'Mi perfil', MI.user]];
 
-  $$('[data-tab]', app).forEach(b => b.addEventListener('click', () => go('panel/' + b.dataset.tab)));
-  $$('[data-cancel]', app).forEach(b => b.addEventListener('click', () => {
+// Reservas del alumno por clase y fecha, para marcarlas en el calendario.
+const myBookings = d => {
+  const out = {};
+  d.reservas.forEach(r => { if (r.estado === 'reservada') out[r.horarioId + '|' + r.fecha] = r; });
+  return out;
+};
+function bindCancel(root) {
+  $$('[data-cancel]', root).forEach(b => b.addEventListener('click', () => {
     if (!confirm('¿Cancelar esta reserva? Recuperarás la clase en tu paquete.')) return;
     busy(b, async () => { await call('me.cancel', { reservaId: b.dataset.cancel }); toast('Reserva cancelada.'); S.occ = {}; render(); }).catch(() => {});
   }));
-  $$('[data-receipt]', app).forEach(b => b.addEventListener('click', () => {
+}
+
+function periodLabel(start, end) {
+  const a = start.split('-').map(Number), b = end.split('-').map(Number);
+  if (start === end) return DAYS[weekday(start)] + ' ' + a[2] + ' ' + MONTHS[a[1] - 1] + ' ' + a[0];
+  return a[2] + (a[1] !== b[1] ? ' ' + MONTHS[a[1] - 1] : '') + (a[0] !== b[0] ? ' ' + a[0] : '') + ' al ' + b[2] + ' ' + MONTHS[b[1] - 1] + ' ' + b[0];
+}
+
+async function memberCalendar(main, d) {
+  const cal = S.cal = S.cal || { mode: 'semana', day: todayMx(), filter: '', open: false };
+  const today = todayMx();
+  const mine = myBookings(d);
+  const horas = Number(cfg().horasCancelacion || 2);
+  const draw = () => {
+    const start = cal.mode === 'semana' ? mondayOf(cal.day) : cal.day;
+    const end = cal.mode === 'semana' ? addDays(start, 6) : start;
+    const days = cal.mode === 'semana' ? [0, 1, 2, 3, 4, 5, 6].map(i => addDays(start, i)) : [start];
+    const used = Array.from(new Set(S.data.horario.map(s => s.claseId)));
+    const blocks = days.map(day => {
+      const slots = slotsOn(day).filter(s => !cal.filter || s.claseId === cal.filter);
+      if (!slots.length) return '';
+      return `<div class="day-block"><div class="day-head ${day === today ? 'today' : ''}">${DAYS[weekday(day)]} <span class="muted small">${fmtDate(day)}</span>${day === today ? ' <span class="tag">Hoy</span>' : ''}</div>
+        ${slots.map(s => slotHtml(s, day, { mine: mine[s.id + '|' + day] })).join('')}</div>`;
+    }).join('');
+    main.innerHTML = `<h1 class="member-title">Calendario</h1>
+      <div class="policy-cards">
+        <div class="policy"><span class="policy-ico">${micon(MI.scale)}</span><div><b>Política de reservaciones</b>
+          <p>Puedes reservar hasta antes del inicio de la clase y con hasta 30 días de anticipación.</p></div></div>
+        <div class="policy"><span class="policy-ico">${micon(MI.scale)}</span><div><b>Política de cancelación</b>
+          <p>Puedes cancelar hasta ${horas} hora${horas === 1 ? '' : 's'} antes del inicio de la clase.</p></div></div>
+      </div>
+      <div class="cal-controls">
+        <div><span class="cal-label">Ver por</span><div class="seg">
+          <button type="button" data-mode="dia" class="${cal.mode === 'dia' ? 'on' : ''}">${micon(MI.day)}Día</button>
+          <button type="button" data-mode="semana" class="${cal.mode === 'semana' ? 'on' : ''}">${micon(MI.cal)}Semana</button></div></div>
+        <div><span class="cal-label">Periodo</span><div class="period">
+          <button type="button" id="calPrev" aria-label="Anterior" ${start <= today ? 'disabled' : ''}>${micon(MI.prev)}</button>
+          <span>${periodLabel(start, end)}</span>
+          <button type="button" id="calNext" aria-label="Siguiente">${micon(MI.next)}</button></div>
+          <div class="cal-filter-row"><button type="button" class="btn-filter ${cal.filter ? 'on' : ''}" id="calFilter">${micon(MI.filter)}Filtrar${cal.filter ? ' · ' + esc(clase(cal.filter).nombre) : ''}</button></div></div>
+      </div>
+      ${cal.open ? `<div class="chips"><button class="chip ${!cal.filter ? 'on' : ''}" data-f="">Todas</button>
+        ${used.map(id => `<button class="chip ${cal.filter === id ? 'on' : ''}" data-f="${esc(id)}">${esc(clase(id).nombre)}</button>`).join('')}</div>` : ''}
+      <div class="cal-list">${blocks || `<div class="cal-empty"><svg viewBox="0 0 40 40" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.25">${LOGO_MARK}</svg>No hay clases que mostrar</div>`}</div>
+      <div class="cal-foot"><div><div>${micon(MI.home)} = Clase presencial</div><div>${micon(MI.screen)} = Clase en línea</div></div>
+        <div class="cal-tz">Horario según la hora del centro de México<br><span>America/Mexico_City</span></div></div>`;
+    $$('[data-mode]', main).forEach(b => b.addEventListener('click', () => { cal.mode = b.dataset.mode; if (cal.mode === 'dia' && cal.day < today) cal.day = today; refresh(); }));
+    $('#calPrev', main).addEventListener('click', () => { cal.day = addDays(cal.mode === 'semana' ? mondayOf(cal.day) : cal.day, cal.mode === 'semana' ? -7 : -1); if (cal.day < today && cal.mode === 'dia') cal.day = today; refresh(); });
+    $('#calNext', main).addEventListener('click', () => { cal.day = addDays(cal.mode === 'semana' ? mondayOf(cal.day) : cal.day, cal.mode === 'semana' ? 7 : 1); refresh(); });
+    $('#calFilter', main).addEventListener('click', () => { cal.open = !cal.open; draw(); });
+    $$('[data-f]', main).forEach(b => b.addEventListener('click', () => { cal.filter = b.dataset.f; cal.open = false; draw(); }));
+    bindBooking(main, () => render());
+    bindCancel(main);
+    return [start, end];
+  };
+  const refresh = async () => {
+    const [start, end] = draw();
+    await loadOccupancy(start, end);
+    if (main.isConnected) draw();
+  };
+  await refresh();
+}
+
+function memberVideos(main) { return pageVideos(main); }
+function memberShop(main) { return pagePackages(main); }
+
+function memberBookings(main, d) {
+  const now = nowMx();
+  const rows = d.reservas.map(r => Object.assign({}, r, { slot: byId(S.data.horario, r.horarioId) }));
+  const canCancel = r => r.estado === 'reservada' && r.slot.hora && (r.fecha + ' ' + r.slot.hora) > now;
+  const next = rows.filter(r => r.estado === 'reservada' && r.fecha >= todayMx()).sort((a, b) => (a.fecha + a.slot.hora) < (b.fecha + b.slot.hora) ? -1 : 1);
+  main.innerHTML = `<h1 class="member-title">Mis reservaciones</h1>
+    <h3>Próximas</h3>
+    ${next.length ? next.map(r => `<div class="slot"><div class="time">${fmtTime(r.slot.hora)}</div>
+      <div><b>${esc(clase(r.slot.claseId).nombre || 'Clase')}</b><div class="meta">${fmtDate(r.fecha, true)} · ${esc(instructor(r.slot.instructorId).nombre || '')}</div></div>
+      <div class="act">${canCancel(r) ? `<button class="btn btn-danger btn-sm" data-cancel="${esc(r.id)}">Cancelar</button>` : stateTag(r.estado)}</div></div>`).join('')
+      : `<div class="cal-empty">No tienes clases reservadas. <a href="#/panel/calendario">Reservar una clase</a></div>`}
+    <h3 style="margin-top:32px">Historial</h3>
+    ${rows.length ? `<div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Hora</th><th>Clase</th><th>Estado</th></tr></thead>
+      <tbody>${rows.map(r => `<tr><td>${fmtDate(r.fecha, true)}</td><td>${fmtTime(r.slot.hora)}</td><td>${esc(clase(r.slot.claseId).nombre || '—')}</td><td>${stateTag(r.estado)}</td></tr>`).join('')}</tbody></table></div>`
+      : '<p class="muted">Aún no tienes reservaciones.</p>'}`;
+  bindCancel(main);
+}
+
+function memberPackages(main, d) {
+  const unlimited = d.activos.some(c => c.clasesTotal === 0);
+  const left = d.activos.reduce((s, c) => s + (c.clasesTotal - c.clasesUsadas), 0);
+  main.innerHTML = `<h1 class="member-title">Mis paquetes</h1>
+    <div class="balance"><span>Clases disponibles</span><b>${unlimited ? 'Ilimitadas' : left}</b>
+      <span>${d.activos.length ? 'Vigente hasta el ' + fmtDate(d.activos[d.activos.length - 1].vence) : 'Sin paquete vigente'}</span>
+      <div class="row" style="margin-top:16px"><a class="btn btn-ghost" style="background:#fff;color:#2b2a27!important" href="#/panel/calendario">Reservar clase</a>
+      <a class="btn btn-ghost" style="border-color:rgba(255,255,255,.6);color:inherit!important" href="#/panel/tienda">Comprar paquete</a></div></div>
+    ${d.compras.some(c => c.estado === 'pendiente') ? '<div class="card" style="margin-top:18px"><b>Tienes un pago en revisión.</b> <span class="muted">Lo validamos lo antes posible.</span> <a href="#/panel/pagos">Ver detalle</a></div>' : ''}
+    ${d.activos.length ? `<div class="grid grid-2" style="margin-top:18px">${d.activos.map(c => `<div class="card"><h3>${esc(c.paquete || 'Paquete')}</h3>
+      <p class="muted">${c.clasesTotal === 0 ? 'Clases ilimitadas' : (c.clasesTotal - c.clasesUsadas) + ' de ' + c.clasesTotal + ' clases disponibles'}<br>Vigencia: ${fmtDate(c.inicio)} – ${fmtDate(c.vence)}</p></div>`).join('')}</div>` : ''}`;
+}
+
+function memberPayments(main, d) {
+  main.innerHTML = `<h1 class="member-title">Historial de pagos</h1>
+    ${d.compras.length ? `<div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Paquete</th><th>Precio</th><th>Estado</th><th>Comprobante</th></tr></thead>
+      <tbody>${d.compras.map(c => `<tr><td>${c.creado ? fmtDate(String(c.creado).slice(0, 10)) : ''}</td><td>${esc(c.paquete)}</td><td>${money(c.precio)}</td>
+        <td>${stateTag(c.estado)}${c.estado === 'rechazado' && c.nota ? `<div class="small muted">${esc(c.nota)}</div>` : ''}</td>
+        <td>${c.estado === 'pendiente' ? (c.comprobante ? '<span class="tag">Enviado</span> ' : '') + `<button class="btn btn-ghost btn-sm" data-receipt="${esc(c.id)}">${c.comprobante ? 'Reemplazar' : 'Subir'}</button>` : (c.comprobante ? 'Enviado' : '—')}</td></tr>`).join('')}</tbody></table></div>`
+      : '<div class="cal-empty">Aún no tienes pagos. <a href="#/panel/tienda">Ver paquetes</a></div>'}`;
+  $$('[data-receipt]', main).forEach(b => b.addEventListener('click', () => {
     const body = openModal('Subir comprobante', `<form id="rcpt"><label><span>Foto o PDF (máx. 5 MB)</span><input type="file" accept="${ACCEPT.comprobante}" required></label>
       <button class="btn btn-primary" type="submit">Enviar</button></form>`);
     $('#rcpt', body).addEventListener('submit', e => {
@@ -890,11 +997,34 @@ async function pageMember(app, tab) {
       }).catch(() => {});
     });
   }));
-  if ($('#profileForm')) {
-    $('#profileForm').addEventListener('submit', e => { e.preventDefault(); busy($('button', e.target), async () => { setSession({ token: S.token, user: await call('me.updateProfile', formData(e.target)) }); toast('Datos guardados.'); }).catch(() => {}); });
-    $('#passForm').addEventListener('submit', e => { e.preventDefault(); busy($('button', e.target), async () => { await call('me.changePassword', formData(e.target)); e.target.reset(); toast('Contraseña actualizada.'); }).catch(() => {}); });
-    $('#logout').addEventListener('click', async () => { await call('auth.logout').catch(() => null); setSession(null); go(''); });
-  }
+}
+
+function memberAttendance(main, d) {
+  const past = d.reservas.filter(r => r.estado !== 'reservada');
+  const n = st => d.reservas.filter(r => r.estado === st).length;
+  main.innerHTML = `<h1 class="member-title">Reporte de asistencias</h1>
+    <div class="kpis"><div class="kpi"><b>${n('asistio')}</b><span>asistencias</span></div>
+      <div class="kpi"><b>${n('falta')}</b><span>faltas</span></div>
+      <div class="kpi"><b>${n('cancelada')}</b><span>canceladas</span></div>
+      <div class="kpi"><b>${d.reservas.filter(r => r.estado === 'reservada' && r.fecha >= todayMx()).length}</b><span>por venir</span></div></div>
+    ${past.length ? `<div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Clase</th><th>Estado</th></tr></thead>
+      <tbody>${past.map(r => { const s = byId(S.data.horario, r.horarioId); return `<tr><td>${fmtDate(r.fecha, true)}</td><td>${esc(clase(s.claseId).nombre || '—')}</td><td>${stateTag(r.estado)}</td></tr>`; }).join('')}</tbody></table></div>`
+      : '<p class="muted">Aún no hay asistencias registradas.</p>'}`;
+}
+
+function memberProfile(main, d) {
+  main.innerHTML = `<h1 class="member-title">Mi perfil</h1><div class="grid grid-2">
+    <form class="card" id="profileForm"><h3>Mis datos</h3>
+      <label><span>Nombre</span><input name="nombre" value="${esc(d.user.nombre)}" required></label>
+      <label><span>Teléfono</span><input name="telefono" value="${esc(d.user.telefono)}"></label>
+      <label><span>Correo</span><input value="${esc(d.user.email)}" disabled></label>
+      <button class="btn btn-primary" type="submit">Guardar</button></form>
+    <form class="card" id="passForm"><h3>Cambiar contraseña</h3>
+      <label><span>Contraseña actual</span>${pwdInput('actual', 'required autocomplete="current-password"')}</label>
+      <label><span>Nueva contraseña</span>${pwdInput('nueva', 'minlength="8" required autocomplete="new-password"')}</label>
+      <button class="btn btn-primary" type="submit">Actualizar</button></form></div>`;
+  $('#profileForm', main).addEventListener('submit', e => { e.preventDefault(); busy($('button', e.target), async () => { setSession({ token: S.token, user: await call('me.updateProfile', formData(e.target)) }); toast('Datos guardados.'); render(); }).catch(() => {}); });
+  $('#passForm', main).addEventListener('submit', e => { e.preventDefault(); busy($('button', e.target), async () => { await call('me.changePassword', formData(e.target)); e.target.reset(); toast('Contraseña actualizada.'); }).catch(() => {}); });
 }
 
 // ---------------------------------------------------------------------------

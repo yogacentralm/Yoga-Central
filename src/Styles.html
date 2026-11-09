@@ -320,4 +320,57 @@ body:has(.save-bar:not([hidden])) .wa-float { display: none; }
 @media (max-width: 1060px) { .team-grid { grid-template-columns: repeat(3, minmax(0, 212px)); } .about-in { margin-left: 0; } }
 @media (max-width: 720px) { .team-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 28px 18px; } .about { padding: 56px 0 40px; } .team { padding: 56px 0 48px; } }
 @media (min-width: 821px) { .at-home .brand { visibility: hidden; } }
+/* Panel del alumno: encabezado con su nombre, menú a la izquierda y calendario. */
+.member-head { background: var(--surface); border-bottom: 1px solid var(--line); }
+.member-head-in { display: flex; align-items: center; height: 66px; }
+.member-me { display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--heading); }
+.member-me b { display: block; font-weight: 500; line-height: 1.1; }
+.member-me small { display: block; font-size: .62rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--brand-text); }
+.avatar-sm { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; background: var(--brand); color: var(--brand-ink); font-weight: 600; font-size: .85rem; }
+.member { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 54px; padding-top: 64px; padding-bottom: 72px; }
+.member-side h3 { text-align: center; font-family: var(--sans); font-weight: 600; font-size: 1.1rem; margin: 176px 0 22px; }
+.member-side nav { display: flex; flex-direction: column; gap: 4px; }
+.member-side a, .member-side button { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 0; border-radius: 6px; background: none; color: var(--heading); font: 400 1.02rem var(--sans); text-decoration: none; cursor: pointer; text-align: left; }
+.member-side a:hover, .member-side button:hover { background: var(--bg); }
+.member-side a.on { background: var(--brand-soft); color: var(--brand-text); }
+.mi { width: 20px; height: 20px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.member-title { font-family: var(--sans); font-weight: 600; font-size: 1.9rem; margin: 0 0 18px; letter-spacing: -.01em; }
+.member-main .wrap.section { padding: 0; max-width: none; }
+.member-main .wrap.section h1 { font-family: var(--sans); font-weight: 600; font-size: 1.9rem; }
+.policy-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-bottom: 40px; }
+.policy { display: flex; gap: 10px; align-items: flex-start; padding: 10px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); }
+.policy-ico { flex: none; width: 44px; height: 44px; border-radius: 4px; display: grid; place-items: center; background: var(--soft); color: var(--brand-text); }
+.policy b { display: block; font-weight: 500; color: var(--brand-text); }
+.policy p { margin: 2px 0 0; font-size: .95rem; line-height: 1.7; }
+.cal-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 18px 24px; margin-bottom: 18px; }
+.cal-label { display: block; font-weight: 600; font-size: .9rem; color: var(--heading); margin-bottom: 10px; }
+.seg { display: inline-flex; }
+.seg button { display: flex; flex-direction: column; align-items: center; gap: 2px; width: 104px; padding: 8px 0 6px; border: 1px solid var(--line); background: var(--surface); color: var(--heading); font: 500 .88rem var(--sans); cursor: pointer; }
+.seg button + button { border-left: 0; }
+.seg button:first-child { border-radius: 4px 0 0 4px; } .seg button:last-child { border-radius: 0 4px 4px 0; }
+.seg button.on { background: var(--brand); border-color: var(--brand); color: var(--brand-ink); }
+.seg .mi { width: 16px; height: 16px; }
+.period { display: grid; grid-template-columns: 48px 1fr 48px; height: 50px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); }
+.period span { display: grid; place-items: center; font-size: 1.05rem; color: var(--heading); text-decoration: underline dotted; text-underline-offset: 4px; border-left: 1px solid var(--line); border-right: 1px solid var(--line); }
+.period button { border: 0; background: none; color: var(--heading); cursor: pointer; display: grid; place-items: center; }
+.period button:disabled { color: var(--line); cursor: default; }
+.cal-filter-row { display: flex; justify-content: flex-end; margin-top: 12px; }
+.btn-filter { display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border: 0; border-radius: 4px; background: #555; color: #fff; font: 600 .95rem var(--sans); cursor: pointer; }
+.btn-filter.on { background: var(--brand); }
+.btn-filter .mi { width: 16px; height: 16px; }
+.cal-list { margin-top: 30px; }
+.cal-empty { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 46px 20px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); color: var(--ink); text-align: center; }
+.cal-empty svg { width: 30px; height: 30px; color: var(--muted); }
+.cal-foot { display: flex; justify-content: space-between; gap: 16px; margin-top: 28px; color: var(--heading); line-height: 1.9; }
+.cal-foot .mi { vertical-align: -4px; }
+.cal-tz { text-align: right; } .cal-tz span { color: var(--brand-text); }
+.slot b .mi { width: 16px; height: 16px; vertical-align: -2px; margin-right: 6px; color: var(--muted); }
+@media (max-width: 900px) {
+  .member { grid-template-columns: minmax(0, 1fr); gap: 20px; padding-top: 16px; }
+  .member-side h3 { display: none; }
+  .member-side nav { flex-direction: row; overflow-x: auto; gap: 6px; padding-bottom: 6px; scrollbar-width: none; }
+  .member-side a, .member-side button { flex: none; white-space: nowrap; font-size: .92rem; padding: 8px 12px; border: 1px solid var(--line); border-radius: 999px; }
+  .policy-cards, .cal-controls { grid-template-columns: 1fr; }
+  .cal-foot { flex-direction: column; } .cal-tz { text-align: left; }
+}
 </style>

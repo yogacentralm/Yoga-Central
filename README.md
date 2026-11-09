@@ -16,7 +16,7 @@ El código no contiene el ID de la hoja, de las carpetas ni ninguna contraseña.
 
 **Sitio público:** el Inicio sigue el diseño de yogacentral.tribu.yoga: foto a todo lo ancho con el logo al centro (la foto es la *Imagen de portada* de Sitio), el texto del estudio (*Nombre*, *Lema* y *Descripción*, un párrafo por línea) y las instructoras en blanco y negro. El menú lleva Horarios, Tienda (paquetes), Videoteca, Crear Cuenta e Iniciar Sesión. Además: horario semanal con cupos y filtro por estilo, paquetes con precio por clase, perfiles de instructoras, videoteca, contacto y términos.
 
-**Panel del alumno** (`Mi cuenta`): saldo de clases y vigencia, reservar y cancelar (con límite de horas configurable), historial, compra de paquetes con subida de comprobante, clase muestra que se activa sola, perfil y cambio de contraseña.
+**Panel del alumno** (`Mi cuenta`), con el diseño de Tribu: arriba su nombre y rol (*Estudiante*); a la izquierda el menú con **Calendario** (políticas de reservación y cancelación, vista por día o semana, periodo con flechas, filtro por clase, reservar y cancelar ahí mismo), Videoteca, Mis reservaciones, Mis paquetes (saldo y vigencia), Historial de pagos (subir comprobante), Reporte de asistencias, Tienda, Mi perfil, Website y Cerrar sesión. En celular el menú se vuelve una fila deslizable.
 
 **Panel de la instructora** (`Mis clases`): ve solo las clases que tiene asignadas en el horario, día por día. Muestra quién está inscrito con su teléfono, permite marcar asistió o faltó (un segundo clic lo deshace) o "Marcar a todos como asistió", y da el total de inscritos, asistencias y faltas del día. No ve pagos ni datos de otras clases.
 
