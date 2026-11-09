@@ -56,7 +56,12 @@ img { max-width: 100%; display: block; }
 /* Barra superior */
 .topbar { position: sticky; top: 0; z-index: 20; background: var(--surface); box-shadow: 0 2px 10px rgba(0,0,0,.08); }
 .topbar-in { display: flex; align-items: center; gap: 16px; height: 64px; }
-.brand { display: flex; align-items: center; gap: 10px; color: var(--heading); text-decoration: none; font-family: var(--serif); font-size: 1.35rem; font-weight: var(--heading-weight); }
+.brand { display: flex; align-items: center; gap: 10px; text-decoration: none; }
+/* Como en el logo: nombre en gris y el lema en mayúsculas espaciadas debajo. */
+.brand-text { display: flex; flex-direction: column; line-height: 1; color: #6b6a6b; }
+.brand-text #brandName { font: 600 1.3rem var(--sans); letter-spacing: -.01em; }
+.brand-text small { margin-top: 3px; font: 500 .56rem var(--sans); letter-spacing: .24em; text-transform: uppercase; text-align: center; }
+.brand-text small:empty { display: none; }
 .logo { width: 34px; height: 34px; color: var(--accent); }
 .nav { margin-left: auto; display: flex; align-items: center; gap: 4px; }
 .nav a { display: inline-flex; align-items: center; gap: 7px; color: var(--heading); text-decoration: none; padding: 8px 14px; border-radius: 999px; font-weight: 500; font-size: 1rem; }

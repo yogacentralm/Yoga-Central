@@ -1,9 +1,9 @@
 // Generado por dev/build.js — no editar a mano.
-const VERSION = '08be039222';
+const VERSION = '901cf99fb9';
 const SHELL = 'shell-' + VERSION;
 const RUNTIME = 'runtime-v1';
 const IMAGES = 'images-v2'; // v1 pudo guardar fotos de Drive fallidas (respuestas opacas)
-const PRECACHE = ['./', './index.html', './manifest.webmanifest', './app/styles.css?v=08be039222', './app/app.js?v=08be039222',
+const PRECACHE = ['./', './index.html', './manifest.webmanifest', './app/styles.css?v=901cf99fb9', './app/app.js?v=901cf99fb9',
   './app/icons/icon-192.png', './app/icons/icon-512.png'];
 
 self.addEventListener('install', e => {
