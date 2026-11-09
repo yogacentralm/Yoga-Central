@@ -412,6 +412,8 @@ async function render() {
   const app = $('#app');
   const key = ROUTES[name] ? routeKey(name) : 'inicio';
   document.body.classList.toggle('at-home', key === 'inicio');
+  // En Mi cuenta el menú del sitio sobra: el panel trae su propio encabezado y menú.
+  document.body.classList.toggle('in-panel', name === 'panel');
   renderDesign(key);
   updatePlayer(key);
   if (!onInvitePage()) hideInstall();
@@ -829,10 +831,13 @@ async function pageMember(app, tab) {
   app.innerHTML = `<div class="member-head"><div class="wrap member-head-in">
       <a class="member-me" href="#/panel/perfil"><span class="avatar-sm">${esc(initials(d.user.nombre))}</span>
       <span><b>${esc(d.user.nombre.split(' ')[0])}</b><small>${esc(PANEL_ROLE[d.user.rol] || 'Estudiante')}</small></span></a>
+      ${canInstall() ? `<button class="install-top" data-install-open aria-label="Instalar la app">${micon('<path d="M12 4v11m0 0-4-4m4 4 4-4M5 19h14"/>')}<span>Instalar</span></button>` : ''}
     </div></div>
     <div class="wrap member">
       <aside class="member-side"><h3>${esc(c.nombre || 'YogaCentral')}</h3>
         <nav>${MEMBER_MENU.map(m => `<a href="#/panel/${m[0]}" class="${m[0] === tab ? 'on' : ''}">${micon(m[2])}${m[1]}</a>`).join('')}
+          ${d.user.rol === 'admin' ? `<a href="#/admin">${micon(MI.gear)}Administrar${pendingBadge()}</a>` : ''}
+          ${d.user.rol === 'instructor' ? `<a href="#/instructor">${micon(MI.list)}Mis clases</a>` : ''}
           <a href="#/">${micon(MI.home)}Website</a>
           <button type="button" id="logout">${micon(MI.logout)}Cerrar sesión</button></nav>
       </aside>
@@ -862,6 +867,7 @@ const MI = {
   scale: '<path d="M12 4v16M7 20h10M5 7h14M5 7l-2.5 6a2.5 2.5 0 0 0 5 0zM19 7l-2.5 6a2.5 2.5 0 0 0 5 0z"/>',
   day: '<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/>',
   filter: '<path d="M4 5h16l-6 7.5V19l-4-2v-4.5z"/>',
+  gear: '<circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/>',
   prev: '<path d="M15 5l-7 7 7 7"/>',
   next: '<path d="M9 5l7 7-7 7"/>',
 };
