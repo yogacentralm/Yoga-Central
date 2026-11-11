@@ -38,18 +38,18 @@ function build(opts) {
   copyBrand(out);
 
   const head = `
-  <title>yogacentral · Yoga, meditación y sonoterapia en Torreón</title>
+  <title>YogaCentral · Yoga, meditación y sonoterapia en Torreón</title>
   <meta name="theme-color" content="#FCFCFC">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" type="image/png" sizes="192x192" href="app/icons/icon-192.png">
   <link rel="apple-touch-icon" href="app/icons/apple-touch-icon.png">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-title" content="yogacentral">
+  <meta name="apple-mobile-web-app-title" content="YogaCentral">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta property="og:type" content="website">
-  <meta property="og:site_name" content="yogacentral">
-  <meta property="og:title" content="yogacentral · Yoga en Torreón">
+  <meta property="og:site_name" content="YogaCentral">
+  <meta property="og:title" content="YogaCentral · Yoga en Torreón">
   <meta property="og:description" content="Yoga, meditación y sonoterapia en el centro de Torreón. Tu primera clase es gratis.">
   <meta property="og:url" content="${SITE_URL}">
   <meta property="og:image" content="${SITE_URL}app/icons/icon-512.png">
@@ -66,9 +66,9 @@ function build(opts) {
   fs.writeFileSync(path.join(out, 'index.html'), index);
 
   fs.writeFileSync(path.join(out, 'manifest.webmanifest'), JSON.stringify({
-    name: 'yogacentral · Yoga en Torreón',
-    short_name: 'yogacentral',
-    description: 'Horarios, reservas y paquetes de yogacentral.',
+    name: 'YogaCentral · Yoga en Torreón',
+    short_name: 'YogaCentral',
+    description: 'Horarios, reservas y paquetes de YogaCentral.',
     lang: 'es-MX',
     start_url: './',
     scope: './',

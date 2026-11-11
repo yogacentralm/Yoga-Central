@@ -60,7 +60,7 @@ const PUBLIC_CONFIG = ['nombre', 'lema', 'descripcion', 'direccion', 'ciudad', '
 function doGet() {
   const cfg = readConfig_();
   const page = HtmlService.createTemplateFromFile('Index').evaluate()
-    .setTitle(cfg.nombre || 'yogacentral')
+    .setTitle(cfg.nombre || 'YogaCentral')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
   // Permite mostrar el sitio dentro de la página corta de GitHub Pages (docs/index.html).
   page.setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
@@ -218,7 +218,7 @@ function resetRequestCache_() {
 
 // Lo que ve cualquier visitante se guarda en CacheService unos minutos; se borra al editarlo.
 const PUBLIC_TABLES = ['Config', 'Instructores', 'Clases', 'Horario', 'Paquetes', 'Galeria', 'Musica'];
-const PUBLIC_CACHE_KEY = 'pub_v2'; // v1 pudo guardar horas mal leídas
+const PUBLIC_CACHE_KEY = 'pub_v3'; // las anteriores pudieron guardar horas mal leídas o la marca en minúsculas
 function touched_(name) {
   delete ROWS_[name];
   if (PUBLIC_TABLES.indexOf(name) >= 0) cache_().remove(PUBLIC_CACHE_KEY);
@@ -336,6 +336,8 @@ function readConfig_() {
   if (!PropertiesService.getScriptProperties().getProperty('DB_ID')) return {};
   const out = {};
   rows_('Config').forEach(r => { out[r.clave] = r.valor; });
+  // La marca se escribe YogaCentral aunque en la hoja esté capturada en minúsculas.
+  if (/^yogacentral$/i.test(String(out.nombre || '').trim())) out.nombre = 'YogaCentral';
   return out;
 }
 
@@ -656,7 +658,7 @@ function notifyPayment_(compra, u) {
     const to = rows_('Usuarios').filter(x => x.rol === 'admin' && x.activo && x.email).map(x => x.email);
     if (!to.length) return;
     const pkg = rows_('Paquetes').find(p => p.id === compra.paqueteId) || {};
-    const estudio = cfg.nombre || 'yogacentral';
+    const estudio = cfg.nombre || 'YogaCentral';
     const precio = '$' + Number(compra.precio || 0).toLocaleString('es-MX');
     const link = SITE_URL + '#/admin/pagos';
     MailApp.sendEmail({
