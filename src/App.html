@@ -230,7 +230,7 @@ const waPhoneLink = tel => { const d = String(tel || '').replace(/\D/g, ''); ret
 
 // Páginas donde se puede poner galería o música (mismas claves que PAGES en Code.gs).
 const PAGE_LABELS = [['inicio', 'Inicio'], ['horarios', 'Horarios'], ['paquetes', 'Paquetes'], ['instructores', 'Instructoras'],
-  ['videos', 'Videoteca'], ['panel', 'Mi cuenta (alumno)'], ['instructor', 'Mis clases (instructora)']];
+  ['panel', 'Shala Virtual (alumno)'], ['instructor', 'Mis clases (instructora)']];
 const pageLabel = k => (PAGE_LABELS.find(p => p[0] === k) || [k, k])[1];
 const DESIGN_USES = [['fondo', 'Fondo de la página (detrás del título)'], ['ancho', 'Imagen a todo lo ancho (debajo del contenido)']];
 const routeKey = name => (name === '' ? 'inicio' : PAGE_LABELS.some(p => p[0] === name) ? name : null);
@@ -385,7 +385,6 @@ const ROUTES = {
   horarios: pageSchedule,
   paquetes: pagePackages,
   instructores: pageInstructors,
-  videos: pageVideos,
   terminos: pageTerms,
   entrar: () => pageAuth('login'),
   registro: () => pageAuth('register'),
@@ -413,7 +412,7 @@ async function render() {
   const app = $('#app');
   const key = ROUTES[name] ? routeKey(name) : 'inicio';
   document.body.classList.toggle('at-home', key === 'inicio');
-  // En Mi cuenta el menú del sitio sobra: el panel trae su propio encabezado y menú.
+  // En Shala Virtual el menú del sitio sobra: el panel trae su propio encabezado y menú.
   document.body.classList.toggle('in-panel', name === 'panel' || name === 'admin');
   renderDesign(key);
   updatePlayer(key);
@@ -434,7 +433,7 @@ function renderNav() {
   $('#navAuth').innerHTML = (!u
     ? '<a href="#/registro">' + ICON_USER + 'Crear Cuenta</a><a href="#/entrar">' + ICON_LOGIN + 'Iniciar Sesión</a>'
     : (u.rol === 'admin' ? '<a href="#/admin">Administrar' + pendingBadge() + '</a>' : '') + (u.rol === 'instructor' ? '<a href="#/instructor">Mis clases</a>' : '')
-      + '<a class="btn btn-primary btn-sm" href="#/panel">Mi cuenta</a>');
+      + '<a class="btn btn-primary btn-sm" href="#/panel">Shala Virtual</a>');
 }
 
 function renderChrome() {
@@ -666,7 +665,7 @@ function buyFlow(paqueteId) {
     <div class="card" style="background:var(--soft);box-shadow:none"><b>Datos para pagar</b>${payBox()}</div>
     <form id="buyForm" style="margin-top:16px">
       <label><span>Comprobante de pago (foto o PDF, máx. 5 MB)</span><input type="file" name="archivo" accept="${ACCEPT.comprobante}"></label>
-      <p class="muted small" style="margin-top:-8px">Si aún no pagas puedes subirlo después desde “Mi cuenta”.</p>
+      <p class="muted small" style="margin-top:-8px">Si aún no pagas puedes subirlo después desde “Shala Virtual”.</p>
       <label><span>Nota (opcional)</span><input name="nota" maxlength="300" placeholder="Ej. pagué desde la cuenta de mi pareja"></label>
       <button class="btn btn-primary btn-block" type="submit">Enviar solicitud</button>
     </form>`);
@@ -677,7 +676,7 @@ function buyFlow(paqueteId) {
       const archivo = await readFile($('input[type=file]', e.target));
       await call('me.buy', { paqueteId, nota: $('input[name=nota]', e.target).value, archivo });
       closeModal();
-      toast(archivo ? 'Recibimos tu comprobante. Te avisaremos al validarlo.' : 'Solicitud creada. Sube tu comprobante desde “Mi cuenta”.');
+      toast(archivo ? 'Recibimos tu comprobante. Te avisaremos al validarlo.' : 'Solicitud creada. Sube tu comprobante desde “Shala Virtual”.');
       go('panel/pagos');
     }).catch(() => {});
   });
@@ -737,36 +736,6 @@ function pageInstructors(app) {
     <p class="muted">Conoce a quienes te acompañan en cada práctica.</p>
     <div class="grid grid-3" style="margin-top:24px">${S.data.instructores.map(personCard).join('')}</div></div>`;
   bindPeople(app);
-}
-
-function embedUrl(url) {
-  let m = String(url).match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/))([\w-]{11})/);
-  if (m) return 'https://www.youtube.com/embed/' + m[1];
-  m = String(url).match(/vimeo\.com\/(\d+)/);
-  if (m) return 'https://player.vimeo.com/video/' + m[1];
-  m = String(url).match(/drive\.google\.com\/file\/d\/([\w-]+)/);
-  if (m) return 'https://drive.google.com/file/d/' + m[1] + '/preview';
-  return '';
-}
-
-async function pageVideos(app) {
-  let videos = S.data.videos;
-  // Si falla, se queda con la lista pública.
-  if (S.user) { try { videos = await call('me.videos'); } catch (e) { videos = S.data.videos; } }
-  const byIdUrl = {};
-  videos.forEach(v => { byIdUrl[v.id] = v.url; });
-  const all = S.data.videos.map(v => Object.assign({}, v, { url: byIdUrl[v.id] || '' }));
-  app.innerHTML = `<div class="wrap section"><h1>Videoteca</h1>
-    <p class="muted">Practica desde casa. Los videos marcados para miembros requieren un paquete vigente.</p>
-    ${all.length ? `<div class="grid grid-2" style="margin-top:24px">${all.map(v => {
-      const src = v.url && embedUrl(v.url);
-      return `<div class="card">${src ? `<div class="video-frame"><iframe src="${esc(src)}" title="${esc(v.titulo)}" loading="lazy" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe></div>`
-        : v.url ? `<p><a class="btn btn-ghost" href="${esc(v.url)}" target="_blank" rel="noopener">Abrir video</a></p>`
-        : `<div class="video-frame" style="display:grid;place-items:center;color:#fff">🔒 Solo miembros</div>`}
-        <h3>${esc(v.titulo)}</h3><p class="muted small">${esc(v.descripcion)}</p></div>`;
-    }).join('')}</div>` : '<div class="empty card" style="margin-top:24px">Muy pronto subiremos prácticas para hacer en casa.</div>'}
-    ${!S.user && all.some(v => v.acceso !== 'publico') ? '<p style="margin-top:24px"><a class="btn btn-primary" href="#/entrar">Inicia sesión para ver todo</a></p>' : ''}
-  </div>`;
 }
 
 function pageTerms(app) {
@@ -845,7 +814,7 @@ async function pageMember(app, tab) {
     </div>`;
   $('#logout', app).addEventListener('click', async () => { await call('auth.logout').catch(() => null); setSession(null); go(''); });
   const main = $('#memberMain', app);
-  const views = { calendario: memberCalendar, videos: memberVideos, reservas: memberBookings, paquetes: memberPackages,
+  const views = { calendario: memberCalendar, reservas: memberBookings, paquetes: memberPackages,
     pagos: memberPayments, asistencias: memberAttendance, tienda: memberShop, perfil: memberProfile };
   await views[tab](main, d);
 }
@@ -854,7 +823,6 @@ const PANEL_ROLE = { alumno: 'Estudiante', instructor: 'Instructora', admin: 'Ad
 // Íconos de línea del panel del alumno (24 × 24).
 const MI = {
   cal: '<rect x="3.5" y="5" width="17" height="15.5" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
-  film: '<rect x="3" y="5" width="18" height="14" rx="1.5"/><path d="M7 5v14M17 5v14M3 9.5h4M3 14.5h4M17 9.5h4M17 14.5h4"/>',
   check: '<rect x="3.5" y="5" width="17" height="15.5" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4M9 15l2 2 4-4"/>',
   bag: '<path d="M5.5 8h13l-1 12.5h-11z"/><path d="M9 8V6.5a3 3 0 0 1 6 0V8"/>',
   money: '<rect x="3" y="6" width="18" height="12" rx="1.5"/><circle cx="12" cy="12" r="2.5"/><path d="M6.5 9.5v5M17.5 9.5v5"/>',
@@ -884,7 +852,7 @@ const MI = {
   next: '<path d="M9 5l7 7-7 7"/>',
 };
 const micon = p => `<svg class="mi" viewBox="0 0 24 24" aria-hidden="true">${p}</svg>`;
-const MEMBER_MENU = [['calendario', 'Calendario', MI.cal], ['videos', 'Videoteca', MI.film], ['reservas', 'Mis reservaciones', MI.check],
+const MEMBER_MENU = [['calendario', 'Calendario', MI.cal], ['reservas', 'Mis reservaciones', MI.check],
   ['paquetes', 'Mis paquetes', MI.bag], ['pagos', 'Historial de pagos', MI.money], ['asistencias', 'Reporte de asistencias', MI.list],
   ['tienda', 'Tienda', MI.cart], ['perfil', 'Mi perfil', MI.user]];
 
@@ -962,7 +930,6 @@ async function memberCalendar(main, d) {
   await refresh();
 }
 
-function memberVideos(main) { return pageVideos(main); }
 function memberShop(main) { return pagePackages(main); }
 
 function memberBookings(main, d) {
@@ -1137,11 +1104,6 @@ const SCHEMAS = {
       { k: 'clases', l: 'Número de clases', t: 'number', hint: '0 = ilimitado' }, { k: 'vigenciaDias', l: 'Vigencia (días)', t: 'number', def: 30 },
       { k: 'descripcion', l: 'Descripción', t: 'textarea' }, { k: 'soloNuevos', l: 'Solo primera visita', t: 'bool' },
       { k: 'destacado', l: 'Destacado', t: 'bool' }, { k: 'orden', l: 'Orden', t: 'number', def: 10 }, { k: 'activo', l: 'A la venta', t: 'bool', def: true }],
-  },
-  Videos: {
-    title: 'Videoteca', cols: ['titulo', 'acceso', 'activo'],
-    fields: [{ k: 'titulo', l: 'Título' }, { k: 'url', l: 'Enlace (YouTube, Vimeo o Drive)' }, { k: 'descripcion', l: 'Descripción', t: 'textarea' },
-      { k: 'acceso', l: 'Acceso', t: 'select', opts: [['miembros', 'Solo con paquete vigente'], ['publico', 'Público']] }, { k: 'activo', l: 'Visible', t: 'bool', def: true }],
   },
   Galeria: {
     title: 'Imágenes del diseño', cols: ['imagen', 'uso', 'pagina', 'orden', 'activo'], sort: (a, b) => a.orden - b.orden,
@@ -1482,7 +1444,7 @@ async function pageAdmin(app, tab) {
     <aside class="admin-side">
       <a class="admin-logo" href="#/admin" aria-label="Inicio de administración"><img src="${LOGO_FLOWER}" alt=""></a>
       <nav>${ADMIN_MENU.map(m => `<a href="#/admin/${m[0]}" class="${m[0] === tab ? 'on' : ''}">${micon(m[2])}<span>${m[1]}</span>${m[0] === 'pagos' ? `<span data-badge="pagos">${pendingBadge()}</span>` : ''}${chev}</a>`).join('')}
-        <a href="#/panel">${micon(MI.user)}<span>Mi Cuenta</span>${chev}</a>
+        <a href="#/panel">${micon(MI.user)}<span>Shala Virtual</span>${chev}</a>
         <a href="#/">${micon(MI.globe)}<span>Website</span>${chev}</a>
         <button type="button" id="admLogout">${micon(MI.logout)}<span>Cerrar sesión</span></button></nav>
       <small>© ${todayMx().slice(0, 4)} ${esc(cfg().nombre || 'YogaCentral')}</small>
@@ -1499,7 +1461,7 @@ async function pageAdmin(app, tab) {
   $$('[data-goto]', app).forEach(b => b.addEventListener('click', () => go('admin/' + b.dataset.goto)));
   $('#admCash', app).addEventListener('click', () => busy($('#admCash', app), async () => { await admStudents(); sellModal('', () => { if (tab === 'inicio') render(); }); }).catch(() => {}));
   const box = $('#admBox');
-  const crud = { horario: 'Horario', clases: 'Clases', instructores: 'Instructores', paquetes: 'Paquetes', videos: 'Videos', galeria: 'Galeria', musica: 'Musica' };
+  const crud = { horario: 'Horario', clases: 'Clases', instructores: 'Instructores', paquetes: 'Paquetes', galeria: 'Galeria', musica: 'Musica' };
   if (crud[tab]) return adminCrud(box, crud[tab]);
   if (tab === 'pagos') return adminPayments(box);
   if (tab === 'alumnos') return adminStudents(box);
@@ -1508,7 +1470,7 @@ async function pageAdmin(app, tab) {
 }
 
 const ADMIN_MENU = [['inicio', 'Inicio', MI.home], ['sitio', 'Estudio', MI.gear], ['instructores', 'Instructores', MI.user],
-  ['clases', 'Clases', MI.leaf], ['horario', 'Horarios', MI.cal], ['videos', 'Videoteca', MI.film], ['paquetes', 'Paquetes', MI.bag],
+  ['clases', 'Clases', MI.leaf], ['horario', 'Horarios', MI.cal], ['paquetes', 'Paquetes', MI.bag],
   ['pagos', 'Pagos', MI.money], ['alumnos', 'Estudiantes', MI.users], ['galeria', 'Imágenes', MI.image], ['musica', 'Música', MI.music]];
 
 const MONTHS_LONG = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
@@ -1670,7 +1632,7 @@ function initInstall() {
 
 // Solo se invita en páginas para ver; nunca en iniciar sesión, crear cuenta ni paneles,
 // donde la tarjeta taparía el botón del formulario en pantallas chicas.
-const INVITE_PAGES = ['inicio', 'horarios', 'paquetes', 'instructores', 'videos'];
+const INVITE_PAGES = ['inicio', 'horarios', 'paquetes', 'instructores'];
 const onInvitePage = () => INVITE_PAGES.indexOf(routeKey(currentRoute()[0]) || '') >= 0;
 const typingNow = () => !!(document.activeElement && document.activeElement.matches && document.activeElement.matches('input, textarea, select'));
 

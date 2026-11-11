@@ -22,14 +22,13 @@ const TABLES = {
   Paquetes: ['id', 'nombre', 'clases', 'vigenciaDias', 'precio', 'descripcion', 'soloNuevos', 'destacado', 'orden', 'activo'],
   Compras: ['id', 'usuarioId', 'paqueteId', 'precio', 'estado', 'comprobante', 'nota', 'creado', 'revisado', 'inicio', 'vence', 'clasesTotal', 'clasesUsadas'],
   Reservas: ['id', 'usuarioId', 'horarioId', 'fecha', 'estado', 'compraId', 'creado'],
-  Videos: ['id', 'titulo', 'url', 'descripcion', 'acceso', 'activo'],
   // pagina / paginas usan las claves de PAGES; paginas es una lista separada por comas.
   // uso: 'fondo' (detrás del título de la página) | 'ancho' (imagen completa debajo del contenido).
   Galeria: ['id', 'titulo', 'imagen', 'descripcion', 'pagina', 'orden', 'activo', 'uso'],
   Musica: ['id', 'titulo', 'audio', 'paginas', 'orden', 'activo'],
 };
 
-const PAGES = ['inicio', 'horarios', 'paquetes', 'instructores', 'videos', 'panel', 'instructor'];
+const PAGES = ['inicio', 'horarios', 'paquetes', 'instructores', 'panel', 'instructor'];
 // Sitio público en GitHub Pages: los correos de aviso enlazan aquí.
 const SITE_URL = 'https://yogacentralm.github.io/Yoga-Central/';
 const COLOR_KEYS = ['colorPrimario', 'colorAcento', 'colorTitulos', 'colorTexto', 'colorFondo', 'colorSuave', 'colorBordes'];
@@ -47,7 +46,7 @@ const NUMERIC = ['clases', 'vigenciaDias', 'precio', 'orden', 'duracion', 'cupo'
 const BOOLEAN = ['activo', 'soloNuevos', 'destacado'];
 
 // Tablas que el administrador edita con el CRUD genérico.
-const ADMIN_EDITABLE = ['Instructores', 'Clases', 'Horario', 'Paquetes', 'Videos', 'Galeria', 'Musica'];
+const ADMIN_EDITABLE = ['Instructores', 'Clases', 'Horario', 'Paquetes', 'Galeria', 'Musica'];
 
 // Claves de Config que se envían al público (el resto, p. ej. notas internas, no).
 const PUBLIC_CONFIG = ['nombre', 'lema', 'descripcion', 'direccion', 'ciudad', 'telefono', 'whatsapp', 'email',
@@ -118,7 +117,6 @@ const ROUTES = {
   'me.uploadReceipt': { role: 'alumno', run: (p, u) => uploadReceipt_(u, p.compraId, p.archivo) },
   'me.updateProfile': { role: 'alumno', run: (p, u) => updateProfile_(u, p) },
   'me.changePassword': { role: 'alumno', run: (p, u) => changePassword_(u, p) },
-  'me.videos': { role: 'alumno', run: (p, u) => memberVideos_(u) },
 
   // Instructoras: solo sus propias clases. Un admin las ve todas.
   'instructor.classes': { role: 'instructor', run: (p, u) => attendance_(p.fecha, ownInstructor_(u)) },
@@ -222,7 +220,7 @@ function resetRequestCache_() {
 }
 
 // Lo que ve cualquier visitante se guarda en CacheService unos minutos; se borra al editarlo.
-const PUBLIC_TABLES = ['Config', 'Instructores', 'Clases', 'Horario', 'Paquetes', 'Videos', 'Galeria', 'Musica'];
+const PUBLIC_TABLES = ['Config', 'Instructores', 'Clases', 'Horario', 'Paquetes', 'Galeria', 'Musica'];
 const PUBLIC_CACHE_KEY = 'pub_v2'; // v1 pudo guardar horas mal leídas
 function touched_(name) {
   delete ROWS_[name];
@@ -507,8 +505,6 @@ function buildPublicData_() {
     horario: rows_('Horario').filter(r => r.activo && clases.some(c => c.id === r.claseId) &&
       instructores.some(i => i.id === r.instructorId)),
     paquetes: rows_('Paquetes').filter(r => r.activo).sort(byOrder),
-    // La URL de los videos solo para miembros se omite aquí.
-    videos: rows_('Videos').filter(r => r.activo).map(v => v.acceso === 'publico' ? v : Object.assign({}, v, { url: '' })),
     galeria: rows_('Galeria').filter(r => r.activo && r.imagen).sort(byOrder),
     musica: rows_('Musica').filter(r => r.activo && r.audio).sort(byOrder),
   };
@@ -686,11 +682,6 @@ function probarAvisoDePago() {
   const pkg = rows_('Paquetes').find(p => p.activo && p.precio > 0) || {};
   notifyPayment_({ paqueteId: pkg.id, precio: pkg.precio || 0 }, u);
   return 'Listo: revisa el correo de los administradores.';
-}
-
-function memberVideos_(u) {
-  const member = activePurchases_(u.id).length > 0 || u.rol === 'admin';
-  return rows_('Videos').filter(v => v.activo && (v.acceso === 'publico' || member));
 }
 
 // ---------------------------------------------------------------------------
