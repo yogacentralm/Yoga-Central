@@ -439,7 +439,7 @@ function renderChrome() {
   if (!editingSite()) { applyTheme(c); applyFonts(c); }
   $('#brandName').textContent = c.nombre || 'YogaCentral';
   $('#brandTag').textContent = c.lema || '';
-  document.title = c.nombre || 'yogacentral';
+  document.title = c.nombre || 'YogaCentral';
   const wa = waLink();
   $('#waFloat').hidden = !wa;
   if (wa) $('#waFloat').href = wa;
@@ -709,11 +709,8 @@ function pagePackages(app) {
     <h1>Paquetes</h1>
     <p class="muted">La vigencia empieza cuando validamos tu pago. Todas las clases del horario están incluidas.</p>
     <div class="grid grid-3" style="margin-top:24px">${S.data.paquetes.map(pkgCard).join('')}</div>
-    <div class="card" style="margin-top:32px"><h3>¿Cómo pago?</h3>${payBox()}
-    ${waLink() ? `<p style="margin-top:14px"><a class="btn btn-ghost" href="${esc(waLink('Hola, tengo una duda sobre los paquetes'))}" target="_blank" rel="noopener">Tengo una duda</a></p>` : ''}</div>
   </div>`;
   bindPackages(app);
-  bindCopy(app);
 }
 
 function buyFlow(paqueteId) {
@@ -1745,7 +1742,7 @@ function showInstall() {
   const direct = !!INSTALL.evt;
   sheet.innerHTML = `<button class="install-x" data-install-close aria-label="Cerrar">×</button>
     <div class="install-head"><img src="app/icons/icon-192.png" alt="" width="56" height="56">
-      <div><h3 id="installTitle">Lleva ${esc(cfg().nombre || 'yogacentral')} en tu celular</h3>
+      <div><h3 id="installTitle">Lleva ${esc(cfg().nombre || 'YogaCentral')} en tu celular</h3>
       <p class="muted small">Gratis y sin ocupar espacio de tienda de apps.</p></div></div>
     <ul class="install-perks"><li><span>⚡</span>Abre al instante</li><li><span>📶</span>Funciona con poca señal</li><li><span>🧘</span>Reserva en dos toques</li></ul>
     ${direct ? '' : installSteps()}

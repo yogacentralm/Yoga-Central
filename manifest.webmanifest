@@ -1,7 +1,7 @@
 {
-  "name": "yogacentral · Yoga en Torreón",
-  "short_name": "yogacentral",
-  "description": "Horarios, reservas y paquetes de yogacentral.",
+  "name": "YogaCentral · Yoga en Torreón",
+  "short_name": "YogaCentral",
+  "description": "Horarios, reservas y paquetes de YogaCentral.",
   "lang": "es-MX",
   "start_url": "./",
   "scope": "./",
