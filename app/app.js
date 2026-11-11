@@ -22,7 +22,6 @@ const S = {
   user: null,
   weekStart: null, // lunes de la semana visible
   occ: {},         // ocupación por "horarioId|fecha"
-  classFilter: '',
   returnTo: null,
   adm: {},         // caché de listas del panel de administración
 };
@@ -429,10 +428,10 @@ function renderNav() {
   const u = S.user;
   // El botón de instalar vive en la barra, fuera del menú, para que siempre se vea.
   $('#installTop').hidden = !canInstall();
+  $('#navMember').innerHTML = u ? '<a href="#/panel">' + ICON_HOME + 'Shala Virtual</a>' : '';
   $('#navAuth').innerHTML = (!u
     ? '<a href="#/registro">' + ICON_USER + 'Crear Cuenta</a><a href="#/entrar">' + ICON_LOGIN + 'Iniciar Sesión</a>'
-    : (u.rol === 'admin' ? '<a href="#/admin">Administrar' + pendingBadge() + '</a>' : '') + (u.rol === 'instructor' ? '<a href="#/instructor">Mis clases</a>' : '')
-      + '<a class="btn btn-primary btn-sm" href="#/panel">Shala Virtual</a>');
+    : (u.rol === 'admin' ? '<a href="#/admin">Administrar' + pendingBadge() + '</a>' : '') + (u.rol === 'instructor' ? '<a href="#/instructor">Mis clases</a>' : ''));
 }
 
 function renderChrome() {
@@ -478,29 +477,111 @@ async function loadOccupancy(desde, hasta) {
   try { Object.assign(S.occ, await call('public.occupancy', { desde, hasta })); } catch (e) { return; }
 }
 
-function slotHtml(s, fecha, opts) {
-  const c = clase(s.claseId);
-  const ins = instructor(s.instructorId);
-  const past = fecha + ' ' + s.hora <= nowMx();
-  const taken = S.occ[s.id + '|' + fecha] || 0;
-  const free = s.cupo > 0 ? Math.max(0, s.cupo - taken) : null;
-  const mine = opts && opts.mine;
-  const cancelable = mine && fecha + ' ' + s.hora > nowMx();
-  const action = mine ? `<span class="tag tag-ok">Reservada</span>${cancelable ? ` <button class="btn btn-ghost btn-sm" data-cancel="${esc(mine.id)}">Cancelar</button>` : ''}`
-    : past ? '<span class="muted small">Terminó</span>'
-    : free === 0 ? '<span class="tag tag-bad">Lleno</span>'
-    : `<button class="btn btn-primary btn-sm" data-book="${esc(s.id)}" data-date="${fecha}">Reservar</button>`;
-  return `<div class="slot ${past ? 'past' : ''}">
-    <div class="time">${fmtTime(s.hora)}</div>
-    <div><b>${s.modalidad === 'en línea' ? micon(MI.screen) : micon(MI.home)}${esc(c.nombre || 'Clase')}</b>
-      <div class="meta">${esc(ins.nombre || '')} · ${s.duracion} min · ${esc(s.sala)}${s.modalidad === 'en línea' ? ' · en línea' : ''}
-      ${opts && opts.withDate ? ' · ' + fmtDate(fecha, true) : ''}
-      ${free !== null && !past ? ` · <span class="${free <= 3 ? 'tag tag-warn' : ''}">${free} lugar${free === 1 ? '' : 'es'}</span>` : ''}</div></div>
-    <div class="act">${action}</div></div>`;
+// Hora como en el calendario: 07:15pm.
+function fmtClock(hhmm) {
+  const [h, m] = hhmm.split(':').map(Number);
+  return String((h % 12) || 12).padStart(2, '0') + ':' + String(m).padStart(2, '0') + (h < 12 ? 'am' : 'pm');
 }
 
-function bindBooking(root, after) {
-  $$('[data-book]', root).forEach(btn => btn.addEventListener('click', () => bookFlow(btn.dataset.book, btn.dataset.date, after)));
+// Calendario por día o semana: lo usan Horarios y el Calendario de Shala Virtual.
+const newCal = () => ({ mode: matchMedia('(max-width: 720px)').matches ? 'dia' : 'semana', day: todayMx(), filter: '', open: false });
+const calEmpty = () => `<div class="cal-empty"><img src="${LOGO_FLOWER}" alt="">No hay clases que mostrar</div>`;
+
+function calClass(s, fecha, mine) {
+  const ins = instructor(s.instructorId);
+  const past = fecha + ' ' + s.hora <= nowMx();
+  const reserva = mine && mine[s.id + '|' + fecha];
+  const inner = `${micon(s.modalidad === 'en línea' ? MI.screen : MI.home)}
+    <span class="cc-txt"><b>${esc(clase(s.claseId).nombre || 'Clase')}</b>
+      <span>${esc(ins.nombre || '')}</span>${s.sala ? `<span>${esc(s.sala)}</span>` : ''}<span>${s.duracion} min</span>
+      ${reserva ? '<small class="tag tag-ok">Reservada</small>' : ''}</span>`;
+  return past ? `<div class="cc past">${inner}</div>` : `<button type="button" class="cc" data-slot="${esc(s.id)}" data-date="${fecha}">${inner}</button>`;
+}
+
+function calDayHtml(day, slotsFor, mine) {
+  const slots = slotsFor(day);
+  if (!slots.length) return calEmpty();
+  return `<div class="cd"><div class="cd-head">${DAYS[weekday(day)]} ${Number(day.slice(8))}</div>
+    ${slots.map(s => `<div class="cd-row"><div class="cd-time">${fmtClock(s.hora)}</div>${calClass(s, day, mine)}</div>`).join('')}</div>`;
+}
+
+function calWeekHtml(days, slotsFor, mine) {
+  const today = todayMx();
+  const hours = Array.from(new Set(days.reduce((all, d) => all.concat(slotsFor(d).map(s => s.hora)), []))).sort();
+  if (!hours.length) return calEmpty();
+  return `<div class="cw-wrap"><table class="cw"><thead><tr><th>Hora</th>
+    ${days.map(d => `<th class="${d === today ? 'today' : ''}">${DAYS_SHORT[weekday(d)]} ${Number(d.slice(8))}</th>`).join('')}</tr></thead>
+    <tbody>${hours.map(h => `<tr><td class="cw-hour">${fmtClock(h)}</td>
+      ${days.map(d => `<td class="${d === today ? 'today' : ''}">${slotsFor(d).filter(s => s.hora === h).map(s => calClass(s, d, mine)).join('')}</td>`).join('')}</tr>`).join('')}</tbody>
+  </table></div>`;
+}
+
+function calPeriodLabel(cal, start, end) {
+  if (cal.mode === 'semana') return periodLabel(start, end);
+  const p = start.split('-').map(Number);
+  return (start === todayMx() ? 'Hoy, ' : '') + DAYS[weekday(start)].toLowerCase() + ' ' + p[2] + ' ' + MONTHS[p[1] - 1] + ' ' + p[0];
+}
+
+function myClassModal(reserva, horarioId, fecha) {
+  const s = byId(S.data.horario, horarioId);
+  const body = openModal('Tu reserva', `
+    <p><b>${esc(clase(s.claseId).nombre)}</b> con ${esc(instructor(s.instructorId).nombre)}<br>
+    <span class="muted">${fmtDate(fecha, true)} · ${fmtTime(s.hora)} · ${s.duracion} min</span></p>
+    <div class="row"><button class="btn btn-ghost" data-cancel="${esc(reserva.id)}">Cancelar reserva</button>
+    <button class="btn btn-primary" data-close>Listo</button></div>`);
+  bindCancel(body);
+}
+
+function tapClass(horarioId, fecha, mine, after) {
+  const key = horarioId + '|' + fecha;
+  if (mine && mine[key]) return myClassModal(mine[key], horarioId, fecha);
+  const s = byId(S.data.horario, horarioId);
+  if (s.cupo > 0 && (S.occ[key] || 0) >= s.cupo) return toast('Esta clase está llena.');
+  bookFlow(horarioId, fecha, after);
+}
+
+// opts: head (HTML encima de los controles), withFilter, mine (reservas del alumno), after (tras reservar).
+async function mountCalendar(box, cal, opts) {
+  const today = todayMx();
+  const draw = () => {
+    const start = cal.mode === 'semana' ? mondayOf(cal.day) : cal.day;
+    const end = cal.mode === 'semana' ? addDays(start, 6) : start;
+    const days = cal.mode === 'semana' ? [0, 1, 2, 3, 4, 5, 6].map(i => addDays(start, i)) : [start];
+    const used = Array.from(new Set(S.data.horario.map(s => s.claseId)));
+    const slotsFor = d => slotsOn(d).filter(s => !cal.filter || s.claseId === cal.filter);
+    box.innerHTML = `${opts.head || ''}
+      <div class="cal-controls">
+        <div><span class="cal-label">Ver por</span><div class="seg">
+          <button type="button" data-mode="dia" class="${cal.mode === 'dia' ? 'on' : ''}">${micon(MI.day)}Día</button>
+          <button type="button" data-mode="semana" class="${cal.mode === 'semana' ? 'on' : ''}">${micon(MI.cal)}Semana</button></div></div>
+        <div><span class="cal-label">Periodo</span><div class="period">
+          <button type="button" id="calPrev" aria-label="Anterior" ${start <= today ? 'disabled' : ''}>${micon(MI.prev)}</button>
+          <span class="period-date">${calPeriodLabel(cal, start, end)}<input type="date" id="calDate" aria-label="Elegir fecha" min="${today}" value="${cal.day}"></span>
+          <button type="button" id="calNext" aria-label="Siguiente">${micon(MI.next)}</button></div>
+          ${opts.withFilter ? `<div class="cal-filter-row"><button type="button" class="btn-filter ${cal.filter ? 'on' : ''}" id="calFilter">${micon(MI.filter)}Filtrar${cal.filter ? ' · ' + esc(clase(cal.filter).nombre) : ''}</button></div>` : ''}</div>
+      </div>
+      ${cal.open ? `<div class="chips"><button class="chip ${!cal.filter ? 'on' : ''}" data-f="">Todas</button>
+        ${used.map(id => `<button class="chip ${cal.filter === id ? 'on' : ''}" data-f="${esc(id)}">${esc(clase(id).nombre)}</button>`).join('')}</div>` : ''}
+      <div class="cal-list">${cal.mode === 'semana' ? calWeekHtml(days, slotsFor, opts.mine) : calDayHtml(start, slotsFor, opts.mine)}</div>
+      <div class="cal-foot"><div><div>${micon(MI.home)} = Clase presencial</div><div>${micon(MI.screen)} = Clase en línea</div></div>
+        <div class="cal-tz">Horario según la hora de Torreón<br><span>America/Monterrey</span></div></div>`;
+    $$('[data-mode]', box).forEach(b => b.addEventListener('click', () => { cal.mode = b.dataset.mode; if (cal.mode === 'dia' && cal.day < today) cal.day = today; refresh(); }));
+    $('#calPrev', box).addEventListener('click', () => { cal.day = addDays(cal.mode === 'semana' ? mondayOf(cal.day) : cal.day, cal.mode === 'semana' ? -7 : -1); if (cal.day < today && cal.mode === 'dia') cal.day = today; refresh(); });
+    $('#calNext', box).addEventListener('click', () => { cal.day = addDays(cal.mode === 'semana' ? mondayOf(cal.day) : cal.day, cal.mode === 'semana' ? 7 : 1); refresh(); });
+    const pick = $('#calDate', box);
+    pick.addEventListener('click', () => { try { pick.showPicker(); } catch (e) { return; } });
+    pick.addEventListener('change', () => { if (pick.value) { cal.day = pick.value; refresh(); } });
+    if (opts.withFilter) $('#calFilter', box).addEventListener('click', () => { cal.open = !cal.open; draw(); });
+    $$('[data-f]', box).forEach(b => b.addEventListener('click', () => { cal.filter = b.dataset.f; cal.open = false; draw(); }));
+    $$('[data-slot]', box).forEach(b => b.addEventListener('click', () => tapClass(b.dataset.slot, b.dataset.date, opts.mine, opts.after || draw)));
+    return [start, end];
+  };
+  const refresh = async () => {
+    const [start, end] = draw();
+    await loadOccupancy(start, end);
+    if (box.isConnected) draw();
+  };
+  await refresh();
 }
 
 function bookFlow(horarioId, fecha, after) {
@@ -544,6 +625,7 @@ const LOGO_BASE = API_URL ? '' : 'https://yogacentralm.github.io/Yoga-Central/';
 const LOGO_FULL = LOGO_BASE + 'app/logo.png';
 const LOGO_FLOWER = LOGO_BASE + 'app/logo-mark.png';
 const ICON_USER = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="10" r="3"/><path d="M6.6 18.4a6.5 6.5 0 0 1 10.8 0"/></svg>';
+const ICON_HOME = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11l8-7 8 7M6 9.5V20h12V9.5"/></svg>';
 const ICON_LOGIN = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 17l5-5-5-5M15 12H3.5M14 3.5h4.5a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H14"/></svg>';
 
 function pageHome(app) {
@@ -573,45 +655,38 @@ function pageHome(app) {
   bindPeople(app);
 }
 
-async function pageSchedule(app) {
-  if (!S.weekStart) S.weekStart = mondayOf(todayMx());
-  const start = S.weekStart;
-  const end = addDays(start, 6);
-  const draw = () => {
-    const days = [0, 1, 2, 3, 4, 5, 6].map(i => addDays(start, i));
-    const used = Array.from(new Set(S.data.horario.map(s => s.claseId)));
-    const blocks = days.map(d => {
-      const slots = slotsOn(d).filter(s => !S.classFilter || s.claseId === S.classFilter);
-      if (!slots.length) return '';
-      return `<div class="day-block"><div class="day-head ${d === todayMx() ? 'today' : ''}">${DAYS[weekday(d)]} <span class="muted small">${fmtDate(d)}</span>${d === todayMx() ? ' <span class="tag">Hoy</span>' : ''}</div>
-        ${slots.map(s => slotHtml(s, d)).join('')}</div>`;
-    }).join('');
-    app.innerHTML = `<div class="wrap section">
-      <h1>Horarios</h1>
-      <p class="muted">Horario de ${esc(cfg().ciudad || 'Ciudad de México')} (hora del centro de México). Reserva tu lugar en línea.</p>
-      <div class="week-nav">
-        <button class="btn btn-ghost btn-sm" id="prevW" ${start <= mondayOf(todayMx()) ? 'disabled' : ''}>← Anterior</button>
-        <b>${fmtDate(start)} – ${fmtDate(end)}</b>
-        <button class="btn btn-ghost btn-sm" id="nextW">Siguiente →</button>
-        ${start !== mondayOf(todayMx()) ? '<button class="btn btn-ghost btn-sm" id="thisW">Esta semana</button>' : ''}
-      </div>
-      <div class="chips"><button class="chip ${!S.classFilter ? 'on' : ''}" data-f="">Todas</button>
-        ${used.map(id => `<button class="chip ${S.classFilter === id ? 'on' : ''}" data-f="${esc(id)}">${esc(clase(id).nombre)}</button>`).join('')}</div>
-      ${blocks || '<div class="empty">No hay clases esta semana con ese filtro.</div>'}
-      <h2 style="margin-top:48px">Estilos de clase</h2>
-      <div class="grid grid-2">${S.data.clases.map(c => `<div class="card"><h3>${esc(c.nombre)}</h3>
-        <div class="row" style="margin-bottom:10px"><span class="tag">${esc(c.nivel)}</span><span class="tag tag-accent">Intensidad ${esc(String(c.intensidad).toLowerCase())}</span></div>
-        <p class="muted">${esc(c.descripcion)}</p></div>`).join('')}</div>
-    </div>`;
-    $('#prevW').addEventListener('click', () => { S.weekStart = addDays(start, -7); render(); });
-    $('#nextW').addEventListener('click', () => { S.weekStart = addDays(start, 7); render(); });
-    if ($('#thisW')) $('#thisW').addEventListener('click', () => { S.weekStart = mondayOf(todayMx()); render(); });
-    $$('[data-f]', app).forEach(b => b.addEventListener('click', () => { S.classFilter = b.dataset.f; draw(); }));
-    bindBooking(app, draw);
+function classCard(c) {
+  const paras = String(c.descripcion || '').split(/\n+/).map(t => t.trim()).filter(Boolean);
+  return `<article class="cl-card"><div class="cl-top">
+      <span class="cl-ico"><img src="${esc(c.imagen || LOGO_FLOWER)}" alt="" loading="lazy"></span>
+      <div><h3>${esc(c.nombre)}</h3><small>${esc(c.nivel)}</small><small>Intensidad: ${esc(c.intensidad)}</small></div></div>
+    ${paras.map(t => `<p>${esc(t)}</p>`).join('')}</article>`;
+}
+
+function bindClasses(root) {
+  const track = $('#clTrack', root);
+  if (!track) return;
+  const prev = $('#clPrev', root), next = $('#clNext', root);
+  const sync = () => { prev.disabled = track.scrollLeft <= 1; next.disabled = track.scrollLeft + track.clientWidth >= track.scrollWidth - 1; };
+  const move = dir => {
+    const c = track.children;
+    track.scrollBy({ left: dir * (c.length > 1 ? c[1].offsetLeft - c[0].offsetLeft : track.clientWidth), behavior: 'smooth' });
   };
-  draw();
-  await loadOccupancy(start, end);
-  if (currentRoute()[0] === 'horarios') draw();
+  prev.addEventListener('click', () => move(-1));
+  next.addEventListener('click', () => move(1));
+  track.addEventListener('scroll', sync, { passive: true });
+  sync();
+}
+
+async function pageSchedule(app) {
+  const cal = S.sched = S.sched || newCal();
+  app.innerHTML = `<div class="wrap section sched"><h1>Horarios</h1><div id="schedBox"></div></div>
+    ${S.data.clases.length ? `<section class="cl-band"><div class="wrap"><h2>Clases</h2>
+      <div class="cl-nav"><button type="button" id="clPrev" aria-label="Clase anterior">${micon(MI.prev)}</button>
+        <button type="button" id="clNext" aria-label="Clase siguiente">${micon(MI.next)}</button></div>
+      <div class="cl-track" id="clTrack">${S.data.clases.map(classCard).join('')}</div></div></section>` : ''}`;
+  bindClasses(app);
+  await mountCalendar($('#schedBox', app), cal, {});
 }
 
 function pkgCard(p) {
@@ -864,7 +939,7 @@ const myBookings = d => {
 function bindCancel(root) {
   $$('[data-cancel]', root).forEach(b => b.addEventListener('click', () => {
     if (!confirm('¿Cancelar esta reserva? Recuperarás la clase en tu paquete.')) return;
-    busy(b, async () => { await call('me.cancel', { reservaId: b.dataset.cancel }); toast('Reserva cancelada.'); S.occ = {}; render(); }).catch(() => {});
+    busy(b, async () => { await call('me.cancel', { reservaId: b.dataset.cancel }); toast('Reserva cancelada.'); S.occ = {}; closeModal(); render(); }).catch(() => {});
   }));
 }
 
@@ -875,58 +950,18 @@ function periodLabel(start, end) {
 }
 
 async function memberCalendar(main, d) {
-  const cal = S.cal = S.cal || { mode: 'semana', day: todayMx(), filter: '', open: false };
-  const today = todayMx();
-  const mine = myBookings(d);
+  const cal = S.cal = S.cal || newCal();
   const horas = Number(cfg().horasCancelacion || 2);
-  const draw = () => {
-    const start = cal.mode === 'semana' ? mondayOf(cal.day) : cal.day;
-    const end = cal.mode === 'semana' ? addDays(start, 6) : start;
-    const days = cal.mode === 'semana' ? [0, 1, 2, 3, 4, 5, 6].map(i => addDays(start, i)) : [start];
-    const used = Array.from(new Set(S.data.horario.map(s => s.claseId)));
-    const blocks = days.map(day => {
-      const slots = slotsOn(day).filter(s => !cal.filter || s.claseId === cal.filter);
-      if (!slots.length) return '';
-      return `<div class="day-block"><div class="day-head ${day === today ? 'today' : ''}">${DAYS[weekday(day)]} <span class="muted small">${fmtDate(day)}</span>${day === today ? ' <span class="tag">Hoy</span>' : ''}</div>
-        ${slots.map(s => slotHtml(s, day, { mine: mine[s.id + '|' + day] })).join('')}</div>`;
-    }).join('');
-    main.innerHTML = `<h1 class="member-title">Calendario</h1>
+  await mountCalendar(main, cal, {
+    withFilter: true, mine: myBookings(d), after: () => render(),
+    head: `<h1 class="member-title">Calendario</h1>
       <div class="policy-cards">
         <div class="policy"><span class="policy-ico">${micon(MI.scale)}</span><div><b>Política de reservaciones</b>
           <p>Puedes reservar hasta antes del inicio de la clase y con hasta 30 días de anticipación.</p></div></div>
         <div class="policy"><span class="policy-ico">${micon(MI.scale)}</span><div><b>Política de cancelación</b>
           <p>Puedes cancelar hasta ${horas} hora${horas === 1 ? '' : 's'} antes del inicio de la clase.</p></div></div>
-      </div>
-      <div class="cal-controls">
-        <div><span class="cal-label">Ver por</span><div class="seg">
-          <button type="button" data-mode="dia" class="${cal.mode === 'dia' ? 'on' : ''}">${micon(MI.day)}Día</button>
-          <button type="button" data-mode="semana" class="${cal.mode === 'semana' ? 'on' : ''}">${micon(MI.cal)}Semana</button></div></div>
-        <div><span class="cal-label">Periodo</span><div class="period">
-          <button type="button" id="calPrev" aria-label="Anterior" ${start <= today ? 'disabled' : ''}>${micon(MI.prev)}</button>
-          <span>${periodLabel(start, end)}</span>
-          <button type="button" id="calNext" aria-label="Siguiente">${micon(MI.next)}</button></div>
-          <div class="cal-filter-row"><button type="button" class="btn-filter ${cal.filter ? 'on' : ''}" id="calFilter">${micon(MI.filter)}Filtrar${cal.filter ? ' · ' + esc(clase(cal.filter).nombre) : ''}</button></div></div>
-      </div>
-      ${cal.open ? `<div class="chips"><button class="chip ${!cal.filter ? 'on' : ''}" data-f="">Todas</button>
-        ${used.map(id => `<button class="chip ${cal.filter === id ? 'on' : ''}" data-f="${esc(id)}">${esc(clase(id).nombre)}</button>`).join('')}</div>` : ''}
-      <div class="cal-list">${blocks || `<div class="cal-empty"><img src="${LOGO_FLOWER}" alt="">No hay clases que mostrar</div>`}</div>
-      <div class="cal-foot"><div><div>${micon(MI.home)} = Clase presencial</div><div>${micon(MI.screen)} = Clase en línea</div></div>
-        <div class="cal-tz">Horario según la hora del centro de México<br><span>America/Mexico_City</span></div></div>`;
-    $$('[data-mode]', main).forEach(b => b.addEventListener('click', () => { cal.mode = b.dataset.mode; if (cal.mode === 'dia' && cal.day < today) cal.day = today; refresh(); }));
-    $('#calPrev', main).addEventListener('click', () => { cal.day = addDays(cal.mode === 'semana' ? mondayOf(cal.day) : cal.day, cal.mode === 'semana' ? -7 : -1); if (cal.day < today && cal.mode === 'dia') cal.day = today; refresh(); });
-    $('#calNext', main).addEventListener('click', () => { cal.day = addDays(cal.mode === 'semana' ? mondayOf(cal.day) : cal.day, cal.mode === 'semana' ? 7 : 1); refresh(); });
-    $('#calFilter', main).addEventListener('click', () => { cal.open = !cal.open; draw(); });
-    $$('[data-f]', main).forEach(b => b.addEventListener('click', () => { cal.filter = b.dataset.f; cal.open = false; draw(); }));
-    bindBooking(main, () => render());
-    bindCancel(main);
-    return [start, end];
-  };
-  const refresh = async () => {
-    const [start, end] = draw();
-    await loadOccupancy(start, end);
-    if (main.isConnected) draw();
-  };
-  await refresh();
+      </div>`,
+  });
 }
 
 function memberShop(main) { return pagePackages(main); }
@@ -1090,7 +1125,9 @@ const SCHEMAS = {
     title: 'Estilos de clase', cols: ['nombre', 'nivel', 'intensidad', 'activo'],
     fields: [{ k: 'nombre', l: 'Nombre' }, { k: 'nivel', l: 'Nivel', t: 'select', opts: ['Principiante', 'Intermedio', 'Avanzado', 'Multinivel'].map(x => [x, x]) },
       { k: 'intensidad', l: 'Intensidad', t: 'select', opts: ['Baja', 'Media', 'Alta'].map(x => [x, x]) },
-      { k: 'descripcion', l: 'Descripción', t: 'textarea' }, { k: 'activo', l: 'Visible', t: 'bool', def: true }],
+      { k: 'descripcion', l: 'Descripción', t: 'textarea' },
+      { k: 'imagen', l: 'Ícono', t: 'image', hint: 'Cuadrado y de preferencia PNG con fondo transparente. Se muestra en un círculo en Horarios.' },
+      { k: 'activo', l: 'Visible', t: 'bool', def: true }],
   },
   Instructores: {
     title: 'Instructoras', cols: ['nombre', 'titulo', 'orden', 'activo'], sort: (a, b) => a.orden - b.orden,

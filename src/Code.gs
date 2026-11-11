@@ -17,7 +17,7 @@ const TABLES = {
   // rol: alumno | instructor | admin. instructorId liga la cuenta con su ficha en Instructores.
   Usuarios: ['id', 'nombre', 'email', 'telefono', 'hash', 'salt', 'rol', 'activo', 'creado', 'instructorId'],
   Instructores: ['id', 'nombre', 'titulo', 'bio', 'foto', 'orden', 'activo'],
-  Clases: ['id', 'nombre', 'nivel', 'intensidad', 'descripcion', 'activo'],
+  Clases: ['id', 'nombre', 'nivel', 'intensidad', 'descripcion', 'activo', 'imagen'],
   Horario: ['id', 'claseId', 'instructorId', 'dia', 'hora', 'duracion', 'sala', 'cupo', 'modalidad', 'activo'],
   Paquetes: ['id', 'nombre', 'clases', 'vigenciaDias', 'precio', 'descripcion', 'soloNuevos', 'destacado', 'orden', 'activo'],
   Compras: ['id', 'usuarioId', 'paqueteId', 'precio', 'estado', 'comprobante', 'nota', 'creado', 'revisado', 'inicio', 'vence', 'clasesTotal', 'clasesUsadas'],
@@ -189,10 +189,7 @@ function setup() {
         insert_(name, seeded, sh);
       });
     } else {
-      // Instalaciones previas: agrega al final las columnas nuevas sin tocar los datos.
-      const head = headerOf_(sh);
-      const missing = TABLES[name].filter(k => head.indexOf(k) < 0);
-      if (missing.length) sh.getRange(1, head.length + 1, 1, missing.length).setValues([missing]).setFontWeight('bold');
+      addMissingColumns_(name, sh);
     }
   });
   const blank = ss.getSheetByName('Hoja 1') || ss.getSheetByName('Sheet1');
@@ -286,6 +283,13 @@ function getById_(name, id) {
   const row = rows_(name).find(r => r.id === String(id));
   if (!row) throw userError_('No se encontró el registro.');
   return row;
+}
+
+// Instalaciones previas: agrega al final las columnas nuevas sin tocar los datos.
+function addMissingColumns_(name, sh) {
+  const head = headerOf_(sh);
+  const missing = TABLES[name].filter(k => head.indexOf(k) < 0);
+  if (missing.length) sh.getRange(1, head.length + 1, 1, missing.length).setValues([missing]).setFontWeight('bold');
 }
 
 function headerOf_(sh) {
@@ -715,6 +719,7 @@ function adminList_(tabla) {
 
 function adminSave_(tabla, item) {
   if (ADMIN_EDITABLE.indexOf(tabla) < 0) throw userError_('Tabla no editable.');
+  addMissingColumns_(tabla, sheet_(tabla));
   const clean = {};
   TABLES[tabla].forEach(k => { if (k !== 'id' && item && k in item) clean[k] = parse_(k, item[k]); });
   if ('nombre' in clean && !clean.nombre) throw userError_('El nombre es obligatorio.');
