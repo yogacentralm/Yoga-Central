@@ -5,7 +5,7 @@ Todo corre en **Google Apps Script**. Los datos quedan en **tu Google Drive**:
 
 | En Drive | Qué guarda |
 |---|---|
-| `yogacentral/yogacentral — base de datos` (hoja de cálculo) | Una pestaña por tabla: Config, Usuarios, Instructores, Clases, Horario, Paquetes, Compras, Reservas, Videos |
+| `yogacentral/yogacentral — base de datos` (hoja de cálculo) | Una pestaña por tabla: Config, Usuarios, Instructores, Clases, Horario, Paquetes, Compras, Reservas |
 | `yogacentral/imagenes/` | Fotos que subes desde el panel (públicas por enlace) |
 | `yogacentral/comprobantes/` | Comprobantes de pago de los alumnos (privados, solo tú los ves) |
 | `yogacentral/musica/` | Audios que subes desde el panel (públicos por enlace) |
@@ -14,13 +14,13 @@ El código no contiene el ID de la hoja, de las carpetas ni ninguna contraseña.
 
 ## Qué incluye
 
-**Sitio público:** el Inicio sigue el diseño de yogacentral.tribu.yoga: foto a todo lo ancho con el logo al centro (la foto es la *Imagen de portada* de Sitio), el texto del estudio (*Nombre*, *Lema* y *Descripción*, un párrafo por línea) y las instructoras en blanco y negro. El menú lleva Horarios, Tienda (paquetes), Videoteca, Crear Cuenta e Iniciar Sesión. Además: horario semanal con cupos y filtro por estilo, paquetes con precio por clase, perfiles de instructoras, videoteca, contacto y términos.
+**Sitio público:** el Inicio sigue el diseño de yogacentral.tribu.yoga: foto a todo lo ancho con el logo al centro (la foto es la *Imagen de portada* de Sitio), el texto del estudio (*Nombre*, *Lema* y *Descripción*, un párrafo por línea) y las instructoras en blanco y negro. El menú lleva Horarios, Tienda (paquetes), Crear Cuenta e Iniciar Sesión. Además: horario semanal con cupos y filtro por estilo, paquetes con precio por clase, perfiles de instructoras, contacto y términos.
 
-**Panel del alumno** (`Mi cuenta`), con el diseño de Tribu: arriba su nombre y rol (*Estudiante*); a la izquierda el menú con **Calendario** (políticas de reservación y cancelación, vista por día o semana, periodo con flechas, filtro por clase, reservar y cancelar ahí mismo), Videoteca, Mis reservaciones, Mis paquetes (saldo y vigencia), Historial de pagos (subir comprobante), Reporte de asistencias, Tienda, Mi perfil, Website y Cerrar sesión. En celular el menú se vuelve una fila deslizable.
+**Panel del alumno** (`Shala Virtual`), con el diseño de Tribu: arriba su nombre y rol (*Estudiante*); a la izquierda el menú con **Calendario** (políticas de reservación y cancelación, vista por día o semana, periodo con flechas, filtro por clase, reservar y cancelar ahí mismo), Mis reservaciones, Mis paquetes (saldo y vigencia), Historial de pagos (subir comprobante), Reporte de asistencias, Tienda, Mi perfil, Website y Cerrar sesión. En celular el menú se vuelve una fila deslizable.
 
 **Panel de la instructora** (`Mis clases`): ve solo las clases que tiene asignadas en el horario, día por día. Muestra quién está inscrito con su teléfono, permite marcar asistió o faltó (un segundo clic lo deshace) o "Marcar a todos como asistió", y da el total de inscritos, asistencias y faltas del día. No ve pagos ni datos de otras clases.
 
-**Panel de administración** (`Administrar`), con el diseño de Tribu: menú lateral con el logo (Inicio, Estudio, Instructores, Clases, Horarios, Videoteca, Paquetes, Pagos, Estudiantes, Imágenes, Música, Mi Cuenta, Website) y, en **Inicio**, el calendario de clases por día o semana con avisos (pagos por aprobar, paquetes por vencer), botones *Pagos* y *Efectivo* (venta en estudio), *Todas / Próximas*, *Ir a Hoy*, filtro, espacios ocupados y **Tomar asistencia** en cada clase (asistió, faltó, cancelar, agregar estudiante o marcar a todos).
+**Panel de administración** (`Administrar`), con el diseño de Tribu: menú lateral con el logo (Inicio, Estudio, Instructores, Clases, Horarios, Paquetes, Pagos, Estudiantes, Imágenes, Música, Shala Virtual, Website) y, en **Inicio**, el calendario de clases por día o semana con avisos (pagos por aprobar, paquetes por vencer), botones *Pagos* y *Efectivo* (venta en estudio), *Todas / Próximas*, *Ir a Hoy*, filtro, espacios ocupados y **Tomar asistencia** en cada clase (asistió, faltó, cancelar, agregar estudiante o marcar a todos).
 - Pagos: aprobar o rechazar comprobantes. Registrar ventas en mostrador (efectivo o terminal).
 - **Aviso de pagos por aprobar:** cuando un alumno sube su comprobante:
   - Al abrir la app (o al volver a ella) aparece una ventana con quién pagó, el paquete y el monto, con **Revisar ahora** y **Más tarde**. Solo se repite si llega un pago nuevo.
@@ -28,13 +28,13 @@ El código no contiene el ID de la hoja, de las carpetas ni ninguna contraseña.
   - Con el sitio cerrado llega un **correo** a cada administrador con el botón *Revisar y aprobar*; en el celular aparece como notificación de Gmail. Se apaga en *Sitio → Avisarme por correo…*.
   - La primera vez, en el editor de Apps Script ejecuta **`probarAvisoDePago`** para aceptar el permiso de enviar correos (te llega un aviso de prueba).
 - Alumnos: buscar, ver saldo, enviar WhatsApp, vender paquete, cambiar el **rol** (alumno, instructora o administrador) y desactivar cuentas.
-- Horario, Clases, Instructoras, Paquetes y Videos: alta, edición y baja, con fotos guardadas en Drive.
+- Horario, Clases, Instructoras y Paquetes: alta, edición y baja, con fotos guardadas en Drive.
 - Imágenes: fotos del diseño, asignadas a una página. Son decorativas y no se abren al tocarlas. Cada una tiene un **uso**:
   - *Fondo de la página*: va detrás del título con un velo claro para que el texto se lea. En Inicio reemplaza a la imagen de portada.
   - *Imagen a todo lo ancho*: va completa debajo del contenido. Sirve para una franja de fotos o una infografía.
 
   Las únicas fotos que se amplían son las de las **instructoras**: al tocar su tarjeta, su perfil muestra la foto en grande.
-- Música: sube audios (MP3, M4A, OGG o WAV, hasta 15 MB) y elige en qué páginas suenan, incluidas *Mi cuenta* y *Mis clases*. Aparece un reproductor abajo a la izquierda. Los navegadores no permiten que la música suene sola: la persona toca ▶. Si pasa a otra página con la misma canción, sigue sonando sin cortarse. Usa música con licencia para uso comercial o libre de derechos.
+- Música: sube audios (MP3, M4A, OGG o WAV, hasta 15 MB) y elige en qué páginas suenan, incluidas *Shala Virtual* y *Mis clases*. Aparece un reproductor abajo a la izquierda. Los navegadores no permiten que la música suene sola: la persona toca ▶. Si pasa a otra página con la misma canción, sigue sonando sin cortarse. Usa música con licencia para uso comercial o libre de derechos.
 - Sitio: los **7 colores** de la página y el **tipo de letra**: se toca una de las 16 tarjetas (*Original*, *Spa sereno*, *Galería*, *Nórdico*…) y la página cambia al momento. En *Elegir letra por separado* hay 49 letras de Google Fonts para títulos y textos. Mientras haya cambios sin guardar aparece abajo una barra con **Guardar** y **Deshacer**, y el sitio avisa antes de salir sin guardar. Además de nombre, textos, imagen de portada, ícono, contacto, instrucciones y link de pago, horas de cancelación y términos.
 
 ## Publicarlo (una sola vez)
