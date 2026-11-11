@@ -41,7 +41,7 @@ function build(opts) {
   <title>YogaCentral · Yoga, meditación y sonoterapia en Torreón</title>
   <meta name="theme-color" content="#FCFCFC">
   <link rel="manifest" href="manifest.webmanifest">
-  <link rel="icon" type="image/png" sizes="192x192" href="app/icons/icon-192.png">
+  <link rel="icon" type="image/png" sizes="96x96" href="app/icons/favicon.png">
   <link rel="apple-touch-icon" href="app/icons/apple-touch-icon.png">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
@@ -164,7 +164,7 @@ self.addEventListener('fetch', e => {
 // ---------------------------------------------------------------- logo e íconos
 // Son los archivos oficiales de app/ (hechos a partir del logo de YogaCentral). Si el sitio se
 // genera en otra carpeta (el simulador), se copian ahí.
-const BRAND_FILES = ['app/logo.png', 'app/logo-mark.png', 'app/icons/icon-192.png', 'app/icons/icon-512.png',
+const BRAND_FILES = ['app/logo.png', 'app/logo-mark.png', 'app/icons/favicon.png', 'app/icons/icon-192.png', 'app/icons/icon-512.png',
   'app/icons/maskable-512.png', 'app/icons/apple-touch-icon.png'];
 function copyBrand(out) {
   if (path.resolve(out) === ROOT) return;
