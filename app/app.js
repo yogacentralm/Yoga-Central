@@ -1725,7 +1725,7 @@ window.addEventListener('beforeinstallprompt', e => {
 window.addEventListener('appinstalled', () => {
   INSTALL.evt = null;
   hideInstall();
-  toast('¡Listo! yogacentral ya está en tu pantalla de inicio.');
+  toast('¡Listo! YogaCentral ya está en tu pantalla de inicio.');
   renderNav();
 });
 
