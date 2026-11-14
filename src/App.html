@@ -226,6 +226,9 @@ const cfg = () => (S.data && S.data.config) || {};
 const byId = (list, id) => (list || []).find(x => x.id === id) || {};
 const clase = id => byId(S.data.clases, id);
 const instructor = id => byId(S.data.instructores, id);
+// Cambio de instructora vigente en un horario y fecha; sin cambio, la clase la da la titular.
+const subOn = (s, fecha) => (S.data.suplencias || []).filter(r => r.horarioId === s.id && r.desde <= fecha && r.hasta >= fecha).pop();
+const insOn = (s, fecha) => instructor((subOn(s, fecha) || s).instructorId);
 const initials = name => String(name || '?').split(/\s+/).slice(0, 2).map(w => w[0]).join('').toUpperCase();
 // Las URL completas van siempre entre comillas simples: dentro de una plantilla con acento
 // grave, Apps Script toma la doble barra como comentario y corta el resto de la línea.
@@ -494,7 +497,7 @@ const newCal = () => ({ mode: matchMedia('(max-width: 720px)').matches ? 'dia' :
 const calEmpty = () => `<div class="cal-empty"><img src="${LOGO_FLOWER}" alt="">No hay clases que mostrar</div>`;
 
 function calClass(s, fecha, mine) {
-  const ins = instructor(s.instructorId);
+  const ins = insOn(s, fecha);
   const past = fecha + ' ' + s.hora <= nowMx();
   const reserva = mine && mine[s.id + '|' + fecha];
   const inner = `${micon(s.modalidad === 'en línea' ? MI.screen : MI.home)}
@@ -531,7 +534,7 @@ function calPeriodLabel(cal, start, end) {
 function myClassModal(reserva, horarioId, fecha) {
   const s = byId(S.data.horario, horarioId);
   const body = openModal('Tu reserva', `
-    <p><b>${esc(clase(s.claseId).nombre)}</b> con ${esc(instructor(s.instructorId).nombre)}<br>
+    <p><b>${esc(clase(s.claseId).nombre)}</b> con ${esc(insOn(s, fecha).nombre)}<br>
     <span class="muted">${fmtDate(fecha, true)} · ${fmtTime(s.hora)} · ${s.duracion} min</span></p>
     <div class="row"><button class="btn btn-ghost" data-cancel="${esc(reserva.id)}">Cancelar reserva</button>
     <button class="btn btn-primary" data-close>Listo</button></div>`);
@@ -599,7 +602,7 @@ function bookFlow(horarioId, fecha, after) {
   const s = byId(S.data.horario, horarioId);
   const c = clase(s.claseId);
   const body = openModal('Confirmar reserva', `
-    <p><b>${esc(c.nombre)}</b> con ${esc(instructor(s.instructorId).nombre)}<br>
+    <p><b>${esc(c.nombre)}</b> con ${esc(insOn(s, fecha).nombre)}<br>
     <span class="muted">${fmtDate(fecha, true)} · ${fmtTime(s.hora)} · ${s.duracion} min</span></p>
     <p class="small muted">Puedes cancelar hasta ${esc(cfg().horasCancelacion || 2)} h antes y recuperas la clase.</p>
     <div class="row"><button class="btn btn-primary" id="okBook">Reservar mi lugar</button>
@@ -977,7 +980,7 @@ function memberBookings(main, d) {
   main.innerHTML = `<h1 class="member-title">Mis reservaciones</h1>
     <h3>Próximas</h3>
     ${next.length ? next.map(r => `<div class="slot"><div class="time">${fmtTime(r.slot.hora)}</div>
-      <div><b>${esc(clase(r.slot.claseId).nombre || 'Clase')}</b><div class="meta">${fmtDate(r.fecha, true)} · ${esc(instructor(r.slot.instructorId).nombre || '')}</div></div>
+      <div><b>${esc(clase(r.slot.claseId).nombre || 'Clase')}</b><div class="meta">${fmtDate(r.fecha, true)} · ${esc(insOn(r.slot, r.fecha).nombre || '')}</div></div>
       <div class="act">${canCancel(r) ? `<button class="btn btn-danger btn-sm" data-cancel="${esc(r.id)}">Cancelar</button>` : stateTag(r.estado)}</div></div>`).join('')
       : `<div class="cal-empty">No tienes clases reservadas. <a href="#/panel/calendario">Reservar una clase</a></div>`}
     <h3 style="margin-top:32px">Historial</h3>
@@ -1541,7 +1544,8 @@ async function adminCalendar(box) {
       if (cal.filter && s.claseId !== cal.filter) return;
       const past = fecha + ' ' + s.hora <= nowMx();
       if (cal.only === 'proximas' && past) return;
-      const ins = instructor(s.instructorId);
+      const ins = insOn(s, fecha);
+      const sub = subOn(s, fecha);
       const taken = S.occ[s.id + '|' + fecha] || 0;
       const online = s.modalidad === 'en línea';
       cards.push(`<article class="acard ${past ? 'past' : ''}">
@@ -1549,7 +1553,8 @@ async function adminCalendar(box) {
           <div><small>${s.sala ? esc(s.sala) + ' · ' : ''}${online ? 'En línea' : 'Presencial'}</small><div class="acard-date">${dayTitle(fecha, true)}</div></div>
           <span class="acard-badge">${micon(MI.cal)}${esc(dayBadge(fecha))}</span></div>
         <h3>${esc(clase(s.claseId).nombre || 'Clase')}</h3>
-        <ul class="acard-info"><li>${micon(MI.user)}Imparte: ${esc(ins.nombre || '—')}</li>
+        <ul class="acard-info"><li>${micon(MI.user)}<span>Imparte: ${esc(ins.nombre || '—')}${sub ? ` <small>(suple a ${esc(instructor(s.instructorId).nombre || '—')} hasta el ${fmtDate(sub.hasta)})</small>` : ''}</span>
+            <button type="button" class="btn btn-ghost btn-sm acard-sub" data-sub="${esc(s.id)}" data-date="${fecha}">Cambiar</button></li>
           <li>${micon(MI.sun)}Hora de inicio: ${fmtTime(s.hora)}</li>
           <li>${micon(MI.clock)}Duración de la clase: ${s.duracion} min</li></ul>
         <div class="acard-foot"><button type="button" class="btn-dark" data-att="${esc(s.id)}" data-date="${fecha}">${micon(MI.list)}Tomar asistencia</button>
@@ -1585,6 +1590,7 @@ async function adminCalendar(box) {
     $('#aFilter', box).addEventListener('click', () => { cal.open = !cal.open; draw(); });
     $$('[data-f]', box).forEach(b => b.addEventListener('click', () => { cal.filter = b.dataset.f; cal.open = false; draw(); }));
     $$('[data-att]', box).forEach(b => b.addEventListener('click', () => attendanceModal(b.dataset.att, b.dataset.date, refresh)));
+    $$('[data-sub]', box).forEach(b => b.addEventListener('click', () => substituteModal(b.dataset.sub, b.dataset.date, draw)));
     return [start, end];
   };
   const refresh = async () => {
@@ -1596,6 +1602,41 @@ async function adminCalendar(box) {
   await refresh();
 }
 
+// Otra instructora da la clase entre dos fechas (vacaciones, un día suelto); después vuelve sola la titular.
+function substituteModal(horarioId, fecha, after) {
+  const s = byId(S.data.horario, horarioId);
+  const titular = instructor(s.instructorId).nombre || '—';
+  const draw = () => {
+    const list = (S.data.suplencias || []).filter(r => r.horarioId === s.id && r.hasta >= todayMx()).sort((a, b) => a.desde < b.desde ? -1 : 1);
+    const body = openModal('Cambiar instructora · ' + (clase(s.claseId).nombre || 'Clase'), `
+      <p class="muted">${DAYS[s.dia]} ${fmtTime(s.hora)} · Titular: <b>${esc(titular)}</b></p>
+      ${list.length ? `<div class="table-wrap"><table><tbody>${list.map(r => `<tr><td>${esc(instructor(r.instructorId).nombre || '—')}</td>
+        <td>${r.desde === r.hasta ? fmtDate(r.desde) : fmtDate(r.desde) + ' – ' + fmtDate(r.hasta)}</td>
+        <td style="text-align:right"><button class="btn btn-ghost btn-sm" data-unsub="${esc(r.id)}">Quitar</button></td></tr>`).join('')}</tbody></table></div>` : ''}
+      <form id="subForm"><div class="form-grid">
+        <label><span>Instructora suplente</span><select name="instructorId" required><option value="">Elige…</option>
+          ${S.data.instructores.filter(i => i.id !== s.instructorId).map(i => `<option value="${esc(i.id)}">${esc(i.nombre)}</option>`).join('')}</select></label>
+        <label><span>Desde</span><input type="date" name="desde" value="${fecha}" required></label>
+        <label><span>Hasta</span><input type="date" name="hasta" value="${fecha}" required></label></div>
+        <p class="small muted">Solo cambia esta clase de los ${DAYS[s.dia].toLowerCase()} a las ${fmtTime(s.hora)}. Después de la fecha "hasta" vuelve sola con ${esc(titular)}.</p>
+        <button class="btn btn-primary" type="submit">Guardar cambio</button></form>`);
+    const done = async msg => { await refreshPublic(); toast(msg); draw(); if (after) after(); };
+    $$('[data-unsub]', body).forEach(b => b.addEventListener('click', () => {
+      if (!confirm('¿Quitar este cambio? La clase vuelve con ' + titular + '.')) return;
+      busy(b, async () => { await call('admin.removeSubstitute', { id: b.dataset.unsub }); await done('Cambio quitado.'); }).catch(() => {});
+    }));
+    $('#subForm', body).addEventListener('submit', e => {
+      e.preventDefault();
+      const f = e.target;
+      busy($('button[type=submit]', f), async () => {
+        await call('admin.setSubstitute', { horarioId: s.id, instructorId: f.instructorId.value, desde: f.desde.value, hasta: f.hasta.value });
+        await done('Listo: ' + instructor(f.instructorId.value).nombre + ' dará esa clase.');
+      }).catch(() => {});
+    });
+  };
+  draw();
+}
+
 // Lista de una clase en una fecha: asistió, faltó, cancelar y agregar alumnos.
 async function attendanceModal(horarioId, fecha, after) {
   const s = byId(S.data.horario, horarioId);
@@ -1604,7 +1645,7 @@ async function attendanceModal(horarioId, fecha, after) {
     const [list, students] = await Promise.all([call('admin.attendance', { fecha }), admStudents()]);
     const x = list.find(i => i.horario.id === horarioId) || { reservas: [] };
     const n = st => x.reservas.filter(r => r.estado === st).length;
-    body.innerHTML = `<p class="muted">${esc(dayTitle(fecha, true))} · ${esc(instructor(s.instructorId).nombre || '')}<br>
+    body.innerHTML = `<p class="muted">${esc(dayTitle(fecha, true))} · ${esc(insOn(s, fecha).nombre || '')}<br>
       Inscritos: <b>${x.reservas.length}${s.cupo ? ' / ' + s.cupo : ''}</b> · Asistieron: <b>${n('asistio')}</b> · Faltaron: <b>${n('falta')}</b></p>
       ${x.reservas.length ? `<div class="table-wrap"><table><tbody>${x.reservas.map(r => `<tr><td>${esc(r.nombre)}<div class="muted small">${esc(r.telefono)}</div></td>
         <td>${stateTag(r.estado)}</td><td><div class="row" style="justify-content:flex-end;flex-wrap:nowrap">

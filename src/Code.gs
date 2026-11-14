@@ -22,6 +22,8 @@ const TABLES = {
   Paquetes: ['id', 'nombre', 'clases', 'vigenciaDias', 'precio', 'descripcion', 'soloNuevos', 'destacado', 'orden', 'activo'],
   Compras: ['id', 'usuarioId', 'paqueteId', 'precio', 'estado', 'comprobante', 'nota', 'creado', 'revisado', 'inicio', 'vence', 'clasesTotal', 'clasesUsadas'],
   Reservas: ['id', 'usuarioId', 'horarioId', 'fecha', 'estado', 'compraId', 'creado'],
+  // Cambio de instructora en un horario entre dos fechas (incluidas); al pasar "hasta" vuelve la titular.
+  Suplencias: ['id', 'horarioId', 'instructorId', 'desde', 'hasta', 'creado'],
   // pagina / paginas usan las claves de PAGES; paginas es una lista separada por comas.
   // uso: 'fondo' (detrás del título de la página) | 'ancho' (imagen completa debajo del contenido).
   Galeria: ['id', 'titulo', 'imagen', 'descripcion', 'pagina', 'orden', 'activo', 'uso'],
@@ -136,6 +138,8 @@ const ROUTES = {
   'admin.markAttendance': { role: 'admin', run: p => markAttendance_(p.reservaId, p.estado) },
   'admin.bookFor': { role: 'admin', run: p => book_(getById_('Usuarios', p.usuarioId), p.horarioId, p.fecha, true) },
   'admin.cancelFor': { role: 'admin', run: p => cancelBooking_(null, p.reservaId, true) },
+  'admin.setSubstitute': { role: 'admin', run: p => setSubstitute_(p) },
+  'admin.removeSubstitute': { role: 'admin', run: p => remove_('Suplencias', p.id) },
   'admin.upload': { role: 'admin', run: p => uploadPublic_(p.archivo, p.tipo === 'audio' ? 'audio' : 'imagen') },
 };
 
@@ -217,7 +221,7 @@ function resetRequestCache_() {
 }
 
 // Lo que ve cualquier visitante se guarda en CacheService unos minutos; se borra al editarlo.
-const PUBLIC_TABLES = ['Config', 'Instructores', 'Clases', 'Horario', 'Paquetes', 'Galeria', 'Musica'];
+const PUBLIC_TABLES = ['Config', 'Instructores', 'Clases', 'Horario', 'Paquetes', 'Galeria', 'Musica', 'Suplencias'];
 const PUBLIC_CACHE_KEY = 'pub_v3'; // las anteriores pudieron guardar horas mal leídas o la marca en minúsculas
 function touched_(name) {
   delete ROWS_[name];
@@ -234,7 +238,14 @@ function db_() {
 
 function sheet_(name) {
   if (SHEETS_[name]) return SHEETS_[name];
-  const sh = db_().getSheetByName(name);
+  let sh = db_().getSheetByName(name);
+  // Tabla nueva en una instalación anterior: se crea vacía sin tener que volver a ejecutar setup.
+  if (!sh && name === 'Suplencias') {
+    sh = db_().insertSheet(name);
+    sh.getRange('A:Z').setNumberFormat('@');
+    sh.getRange(1, 1, 1, TABLES[name].length).setValues([TABLES[name]]).setFontWeight('bold');
+    sh.setFrozenRows(1);
+  }
   if (!sh) throw userError_('Falta la tabla ' + name + ' (ejecuta setup).');
   SHEETS_[name] = sh;
   return sh;
@@ -242,7 +253,7 @@ function sheet_(name) {
 
 // Hojas de cálculo convierten "20:15", "2026-11-09" o números largos a hora, fecha o número
 // si la celda no tiene formato de texto. Al leer se regresan al texto que usa la app.
-const DATE_ONLY = ['fecha', 'inicio', 'vence'];
+const DATE_ONLY = ['fecha', 'inicio', 'vence', 'desde', 'hasta'];
 let SHEET_TZ_ = null;
 function sheetTz_() { return SHEET_TZ_ || (SHEET_TZ_ = db_().getSpreadsheetTimeZone() || TZ); }
 
@@ -513,6 +524,9 @@ function buildPublicData_() {
     paquetes: rows_('Paquetes').filter(r => r.activo).sort(byOrder),
     galeria: rows_('Galeria').filter(r => r.activo && r.imagen).sort(byOrder),
     musica: rows_('Musica').filter(r => r.activo && r.audio).sort(byOrder),
+    // Las ya terminadas no se envían: esas clases vuelven solas con su instructora titular.
+    suplencias: rows_('Suplencias').filter(r => r.hasta >= addDays_(today_(), -7) &&
+      instructores.some(i => i.id === r.instructorId)),
   };
 }
 
@@ -829,12 +843,32 @@ function sellPackage_(usuarioId, paqueteId, nota) {
   return approve_(c.id, nota || 'Venta en estudio');
 }
 
+/** Instructora que da un horario en una fecha: la suplente si hay un cambio vigente, si no la titular. */
+function instructorOn_(slot, fecha) {
+  const sub = rows_('Suplencias').filter(r => r.horarioId === slot.id && r.desde <= fecha && r.hasta >= fecha).pop();
+  return sub ? sub.instructorId : slot.instructorId;
+}
+
+function setSubstitute_(p) {
+  const slot = getById_('Horario', p.horarioId);
+  const ficha = rows_('Instructores').find(i => i.id === String(p.instructorId || ''));
+  if (!ficha) throw userError_('Elige una instructora.');
+  if (ficha.id === slot.instructorId) throw userError_('Esa instructora ya es la titular de la clase.');
+  if (!isYmd_(p.desde) || !isYmd_(p.hasta) || p.hasta < p.desde) throw userError_('Revisa las fechas: "hasta" no puede ser antes de "desde".');
+  if (rows_('Suplencias').some(r => r.horarioId === slot.id && r.desde <= p.hasta && r.hasta >= p.desde)) {
+    throw userError_('Ya hay un cambio de instructora en esas fechas. Quítalo primero.');
+  }
+  return insert_('Suplencias', { horarioId: slot.id, instructorId: ficha.id, desde: p.desde, hasta: p.hasta, creado: nowStamp_() });
+}
+
 function attendance_(fecha, instructorId) {
   if (!isYmd_(fecha)) throw userError_('Fecha no válida.');
   const dia = weekday_(fecha);
   const usuarios = rows_('Usuarios');
   const reservas = rows_('Reservas').filter(r => r.fecha === fecha && r.estado !== 'cancelada');
-  return rows_('Horario').filter(s => s.dia === dia && s.activo && (!instructorId || s.instructorId === instructorId))
+  return rows_('Horario').filter(s => s.dia === dia && s.activo)
+    .map(s => Object.assign({}, s, { instructorId: instructorOn_(s, fecha) }))
+    .filter(s => !instructorId || s.instructorId === instructorId)
     .sort((a, b) => a.hora < b.hora ? -1 : 1)
     .map(s => ({
       horario: s,
@@ -851,7 +885,7 @@ function markAttendance_(reservaId, estado, instructorId) {
   if (r.estado === 'cancelada') throw userError_('La reserva está cancelada.');
   if (instructorId) {
     const slot = rows_('Horario').find(s => s.id === r.horarioId);
-    if (!slot || slot.instructorId !== instructorId) throw userError_('Esa clase no es tuya.');
+    if (!slot || instructorOn_(slot, r.fecha) !== instructorId) throw userError_('Esa clase no es tuya.');
   }
   return update_('Reservas', reservaId, { estado: estado });
 }
