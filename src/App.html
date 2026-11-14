@@ -56,6 +56,11 @@ function weekday(ymd) { const p = ymd.split('-').map(Number); return new Date(Da
 function mondayOf(ymd) { return addDays(ymd, -((weekday(ymd) + 6) % 7)); }
 function fmtDate(ymd, withDay) {
   if (!ymd) return '—';
+  ymd = String(ymd);
+  // Acepta 'yyyy-MM-dd' y 'dd/MM/yyyy' (filas editadas a mano en la hoja); otro formato se muestra tal cual.
+  const dmy = /^(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(ymd);
+  if (dmy) ymd = dmy[3] + '-' + dmy[2].padStart(2, '0') + '-' + dmy[1].padStart(2, '0');
+  if (!/^\d{4}-\d{2}-\d{2}/.test(ymd)) return esc(ymd);
   const p = ymd.slice(0, 10).split('-').map(Number);
   return (withDay ? DAYS[weekday(ymd.slice(0, 10))] + ' ' : '') + p[2] + ' ' + MONTHS[p[1] - 1] + (withDay ? '' : ' ' + p[0]);
 }
@@ -998,7 +1003,7 @@ function memberPackages(main, d) {
 function memberPayments(main, d) {
   main.innerHTML = `<h1 class="member-title">Historial de pagos</h1>
     ${d.compras.length ? `<div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Paquete</th><th>Precio</th><th>Estado</th><th>Comprobante</th></tr></thead>
-      <tbody>${d.compras.map(c => `<tr><td>${c.creado ? fmtDate(String(c.creado).slice(0, 10)) : ''}</td><td>${esc(c.paquete)}</td><td>${money(c.precio)}</td>
+      <tbody>${d.compras.map(c => `<tr><td>${c.creado ? fmtDate(c.creado) : ''}</td><td>${esc(c.paquete)}</td><td>${money(c.precio)}</td>
         <td>${stateTag(c.estado)}${c.estado === 'rechazado' && c.nota ? `<div class="small muted">${esc(c.nota)}</div>` : ''}</td>
         <td>${c.estado === 'pendiente' ? (c.comprobante ? '<span class="tag">Enviado</span> ' : '') + `<button class="btn btn-ghost btn-sm" data-receipt="${esc(c.id)}">${c.comprobante ? 'Reemplazar' : 'Subir'}</button>` : (c.comprobante ? 'Enviado' : '—')}</td></tr>`).join('')}</tbody></table></div>`
       : '<div class="cal-empty">Aún no tienes pagos. <a href="#/panel/tienda">Ver paquetes</a></div>'}`;
