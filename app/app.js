@@ -228,6 +228,8 @@ const instructor = id => byId(S.data.instructores, id);
 // Cambio de instructora vigente en un horario y fecha; sin cambio, la clase la da la titular.
 const subOn = (s, fecha) => (S.data.suplencias || []).filter(r => r.horarioId === s.id && r.desde <= fecha && r.hasta >= fecha).pop();
 const insOn = (s, fecha) => instructor((subOn(s, fecha) || s).instructorId);
+// Clase cancelada ese día (Administrar → Inicio → Cancelar clase).
+const cancelOn = (s, fecha) => (S.data.cancelaciones || []).find(r => r.horarioId === s.id && r.fecha === fecha);
 const initials = name => String(name || '?').split(/\s+/).slice(0, 2).map(w => w[0]).join('').toUpperCase();
 // Las URL completas van siempre entre comillas simples: dentro de una plantilla con acento
 // grave, Apps Script toma la doble barra como comentario y corta el resto de la línea.
@@ -497,12 +499,13 @@ const calEmpty = () => `<div class="cal-empty"><img src="${LOGO_FLOWER}" alt="">
 
 function calClass(s, fecha, mine) {
   const ins = insOn(s, fecha);
-  const past = fecha + ' ' + s.hora <= nowMx();
+  const off = cancelOn(s, fecha);
+  const past = off || fecha + ' ' + s.hora <= nowMx();
   const reserva = mine && mine[s.id + '|' + fecha];
   const inner = `${micon(s.modalidad === 'en línea' ? MI.screen : MI.home)}
     <span class="cc-txt"><b>${esc(clase(s.claseId).nombre || 'Clase')}</b>
       <span>${esc(ins.nombre || '')}</span>${s.sala ? `<span>${esc(s.sala)}</span>` : ''}<span>${s.duracion} min</span>
-      ${reserva ? '<small class="tag tag-ok">Reservada</small>' : ''}</span>`;
+      ${off ? '<small class="tag tag-bad">Cancelada</small>' : reserva ? '<small class="tag tag-ok">Reservada</small>' : ''}</span>`;
   return past ? `<div class="cc past">${inner}</div>` : `<button type="button" class="cc" data-slot="${esc(s.id)}" data-date="${fecha}">${inner}</button>`;
 }
 
@@ -1079,7 +1082,7 @@ async function pageInstructor(app, fecha) {
       const s = x.horario;
       return `<div class="card" style="margin-bottom:14px">
         <div class="row"><h3 style="margin:0">${fmtTime(s.hora)} · ${esc(clase(s.claseId).nombre || 'Clase')}</h3><span class="spacer"></span>
-          <span class="tag">${x.reservas.length}${s.cupo ? ' / ' + s.cupo : ''} inscritos</span></div>
+          ${s.cancelada ? '<span class="tag tag-bad">Cancelada</span>' : `<span class="tag">${x.reservas.length}${s.cupo ? ' / ' + s.cupo : ''} inscritos</span>`}</div>
         <p class="muted small" style="margin:4px 0 0">${esc(s.sala)} · ${s.duracion} min${S.user.rol === 'admin' ? ' · ' + esc(instructor(s.instructorId).nombre) : ''}</p>
         ${x.reservas.length ? `<div class="table-wrap" style="margin-top:12px"><table><tbody>${x.reservas.map((r, i) => `<tr>
           <td style="width:28px" class="muted">${i + 1}</td>
@@ -1545,18 +1548,22 @@ async function adminCalendar(box) {
       if (cal.only === 'proximas' && past) return;
       const ins = insOn(s, fecha);
       const sub = subOn(s, fecha);
+      const off = cancelOn(s, fecha);
       const taken = S.occ[s.id + '|' + fecha] || 0;
       const online = s.modalidad === 'en línea';
       cards.push(`<article class="acard ${past ? 'past' : ''}">
         <div class="acard-head"><span class="acard-ico">${micon(online ? MI.screen : MI.home)}</span>
           <div><small>${s.sala ? esc(s.sala) + ' · ' : ''}${online ? 'En línea' : 'Presencial'}</small><div class="acard-date">${dayTitle(fecha, true)}</div></div>
           <span class="acard-badge">${micon(MI.cal)}${esc(dayBadge(fecha))}</span></div>
-        <h3>${esc(clase(s.claseId).nombre || 'Clase')}</h3>
+        <h3>${esc(clase(s.claseId).nombre || 'Clase')}${off ? ' <span class="tag tag-bad">Cancelada</span>' : ''}</h3>
         <ul class="acard-info"><li>${micon(MI.user)}<span>Imparte: ${esc(ins.nombre || '—')}${sub ? ` <small>(suple a ${esc(instructor(s.instructorId).nombre || '—')} hasta el ${fmtDate(sub.hasta)})</small>` : ''}</span>
             <button type="button" class="btn btn-ghost btn-sm acard-sub" data-sub="${esc(s.id)}" data-date="${fecha}">Cambiar</button></li>
           <li>${micon(MI.sun)}Hora de inicio: ${fmtTime(s.hora)}</li>
           <li>${micon(MI.clock)}Duración de la clase: ${s.duracion} min</li></ul>
-        <div class="acard-foot"><button type="button" class="btn-dark" data-att="${esc(s.id)}" data-date="${fecha}">${micon(MI.list)}Tomar asistencia</button>
+        <div class="acard-foot"><div class="row">${off
+            ? `<button type="button" class="btn btn-ghost btn-sm" data-restore="${esc(off.id)}">Reactivar clase</button>`
+            : `<button type="button" class="btn-dark" data-att="${esc(s.id)}" data-date="${fecha}">${micon(MI.list)}Tomar asistencia</button>
+              ${past ? '' : `<button type="button" class="btn btn-ghost btn-sm" data-cancelcls="${esc(s.id)}" data-date="${fecha}">Cancelar clase</button>`}`}</div>
           <span>Espacios ocupados: ${taken}${s.cupo ? ' / ' + s.cupo : ''}</span></div></article>`);
     }));
     box.innerHTML = `${notices ? `<div class="admin-notes">
@@ -1590,6 +1597,23 @@ async function adminCalendar(box) {
     $$('[data-f]', box).forEach(b => b.addEventListener('click', () => { cal.filter = b.dataset.f; cal.open = false; draw(); }));
     $$('[data-att]', box).forEach(b => b.addEventListener('click', () => attendanceModal(b.dataset.att, b.dataset.date, refresh)));
     $$('[data-sub]', box).forEach(b => b.addEventListener('click', () => substituteModal(b.dataset.sub, b.dataset.date, draw)));
+    $$('[data-cancelcls]', box).forEach(b => b.addEventListener('click', () => {
+      const s = byId(S.data.horario, b.dataset.cancelcls);
+      const n = S.occ[s.id + '|' + b.dataset.date] || 0;
+      if (!confirm('¿Cancelar ' + (clase(s.claseId).nombre || 'la clase') + ' del ' + dayTitle(b.dataset.date, true) + '?'
+        + (n ? '\n\n' + n + ' estudiante' + (n === 1 ? '' : 's') + ' con reserva recibirá' + (n === 1 ? '' : 'n') + ' su clase de vuelta y un correo de aviso.' : ''))) return;
+      busy(b, async () => {
+        const r = await call('admin.cancelClass', { horarioId: s.id, fecha: b.dataset.date });
+        S.adm.students = null;
+        await refreshPublic();
+        toast('Clase cancelada.' + (r.avisados ? ' Avisamos a ' + r.avisados + ' estudiante' + (r.avisados === 1 ? '' : 's') + '.' : ''));
+        refresh();
+      }).catch(() => {});
+    }));
+    $$('[data-restore]', box).forEach(b => b.addEventListener('click', () => {
+      if (!confirm('¿Reactivar la clase? Las reservas que se cancelaron no vuelven solas: cada estudiante tendrá que reservar de nuevo.')) return;
+      busy(b, async () => { await call('admin.restoreClass', { id: b.dataset.restore }); await refreshPublic(); toast('Clase reactivada.'); refresh(); }).catch(() => {});
+    }));
     return [start, end];
   };
   const refresh = async () => {
