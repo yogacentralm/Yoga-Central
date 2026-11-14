@@ -24,6 +24,8 @@ const TABLES = {
   Reservas: ['id', 'usuarioId', 'horarioId', 'fecha', 'estado', 'compraId', 'creado'],
   // Cambio de instructora en un horario entre dos fechas (incluidas); al pasar "hasta" vuelve la titular.
   Suplencias: ['id', 'horarioId', 'instructorId', 'desde', 'hasta', 'creado'],
+  // Clase que no se da un día (imprevisto, asueto); el resto de las semanas sigue igual.
+  Cancelaciones: ['id', 'horarioId', 'fecha', 'creado'],
   // pagina / paginas usan las claves de PAGES; paginas es una lista separada por comas.
   // uso: 'fondo' (detrás del título de la página) | 'ancho' (imagen completa debajo del contenido).
   Galeria: ['id', 'titulo', 'imagen', 'descripcion', 'pagina', 'orden', 'activo', 'uso'],
@@ -140,6 +142,8 @@ const ROUTES = {
   'admin.cancelFor': { role: 'admin', run: p => cancelBooking_(null, p.reservaId, true) },
   'admin.setSubstitute': { role: 'admin', run: p => setSubstitute_(p) },
   'admin.removeSubstitute': { role: 'admin', run: p => remove_('Suplencias', p.id) },
+  'admin.cancelClass': { role: 'admin', run: p => cancelClass_(p.horarioId, p.fecha) },
+  'admin.restoreClass': { role: 'admin', run: p => remove_('Cancelaciones', p.id) },
   'admin.upload': { role: 'admin', run: p => uploadPublic_(p.archivo, p.tipo === 'audio' ? 'audio' : 'imagen') },
 };
 
@@ -221,7 +225,7 @@ function resetRequestCache_() {
 }
 
 // Lo que ve cualquier visitante se guarda en CacheService unos minutos; se borra al editarlo.
-const PUBLIC_TABLES = ['Config', 'Instructores', 'Clases', 'Horario', 'Paquetes', 'Galeria', 'Musica', 'Suplencias'];
+const PUBLIC_TABLES = ['Config', 'Instructores', 'Clases', 'Horario', 'Paquetes', 'Galeria', 'Musica', 'Suplencias', 'Cancelaciones'];
 const PUBLIC_CACHE_KEY = 'pub_v3'; // las anteriores pudieron guardar horas mal leídas o la marca en minúsculas
 function touched_(name) {
   delete ROWS_[name];
@@ -239,8 +243,8 @@ function db_() {
 function sheet_(name) {
   if (SHEETS_[name]) return SHEETS_[name];
   let sh = db_().getSheetByName(name);
-  // Tabla nueva en una instalación anterior: se crea vacía sin tener que volver a ejecutar setup.
-  if (!sh && name === 'Suplencias') {
+  // Tablas nuevas en una instalación anterior: se crean vacías sin tener que volver a ejecutar setup.
+  if (!sh && (name === 'Suplencias' || name === 'Cancelaciones')) {
     sh = db_().insertSheet(name);
     sh.getRange('A:Z').setNumberFormat('@');
     sh.getRange(1, 1, 1, TABLES[name].length).setValues([TABLES[name]]).setFontWeight('bold');
@@ -527,6 +531,7 @@ function buildPublicData_() {
     // Las ya terminadas no se envían: esas clases vuelven solas con su instructora titular.
     suplencias: rows_('Suplencias').filter(r => r.hasta >= addDays_(today_(), -7) &&
       instructores.some(i => i.id === r.instructorId)),
+    cancelaciones: rows_('Cancelaciones').filter(r => r.fecha >= addDays_(today_(), -7)),
   };
 }
 
@@ -578,6 +583,7 @@ function book_(u, horarioId, fecha, byAdmin) {
   const slot = rows_('Horario').find(r => r.id === String(horarioId) && r.activo);
   if (!slot) throw userError_('Esa clase ya no está disponible.');
   if (slot.dia !== weekday_(fecha)) throw userError_('La clase no se imparte ese día.');
+  if (isCancelled_(slot.id, fecha)) throw userError_('Esa clase se canceló ese día.');
   if (!byAdmin && slotStart_(slot, fecha) <= nowStamp_()) throw userError_('Esa clase ya comenzó.');
   if (!byAdmin && fecha > addDays_(today_(), 30)) throw userError_('Solo puedes reservar con hasta 30 días de anticipación.');
 
@@ -861,13 +867,60 @@ function setSubstitute_(p) {
   return insert_('Suplencias', { horarioId: slot.id, instructorId: ficha.id, desde: p.desde, hasta: p.hasta, creado: nowStamp_() });
 }
 
+function isCancelled_(horarioId, fecha) {
+  return rows_('Cancelaciones').some(r => r.horarioId === horarioId && r.fecha === fecha);
+}
+
+/** Cancela la clase de un día: devuelve la clase a quien ya reservó y le avisa por correo. */
+function cancelClass_(horarioId, fecha) {
+  const slot = getById_('Horario', horarioId);
+  if (!isYmd_(fecha) || slot.dia !== weekday_(fecha)) throw userError_('La clase no se imparte ese día.');
+  if (isCancelled_(slot.id, fecha)) throw userError_('Esa clase ya está cancelada ese día.');
+  insert_('Cancelaciones', { horarioId: slot.id, fecha: fecha, creado: nowStamp_() });
+  const reservas = rows_('Reservas').filter(r => r.horarioId === slot.id && r.fecha === fecha && r.estado === 'reservada');
+  reservas.forEach(r => cancelBooking_(null, r.id, true));
+  const usuarios = rows_('Usuarios');
+  notifyCancelled_(slot, fecha, reservas.map(r => usuarios.find(u => u.id === r.usuarioId)).filter(u => u && u.email));
+  return { avisados: reservas.length };
+}
+
+function notifyCancelled_(slot, fecha, alumnos) {
+  if (!alumnos.length) return;
+  const cfg = readConfig_();
+  const estudio = cfg.nombre || 'YogaCentral';
+  const nombre = (rows_('Clases').find(c => c.id === slot.claseId) || {}).nombre || 'tu clase';
+  const p = fecha.split('-').map(Number);
+  const meses = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+  const cuando = p[2] + ' de ' + meses[p[1] - 1] + ' a las ' + slot.hora;
+  const link = SITE_URL + '#/panel/calendario';
+  alumnos.forEach(u => {
+    try {
+      MailApp.sendEmail({
+        to: u.email,
+        name: estudio,
+        subject: 'Clase cancelada: ' + nombre + ' · ' + cuando,
+        body: 'Hola ' + u.nombre + ',\n\nLa clase de ' + nombre + ' del ' + cuando + ' se canceló. '
+          + 'Ya te devolvimos la clase a tu paquete para que reserves otra.\n\nReserva aquí: ' + link,
+        htmlBody: '<div style="font-family:Arial,sans-serif;font-size:15px;color:#333;line-height:1.5">'
+          + '<p>Hola ' + esc_(u.nombre) + ',</p>'
+          + '<p>La clase de <b>' + esc_(nombre) + '</b> del <b>' + cuando + '</b> se canceló. '
+          + 'Ya te devolvimos la clase a tu paquete para que reserves otra.</p>'
+          + '<p><a href="' + link + '" style="display:inline-block;background:#669C35;color:#fff;padding:12px 22px;border-radius:999px;text-decoration:none;font-weight:bold">Reservar otra clase</a></p></div>',
+      });
+    } catch (e) {
+      // La reserva ya quedó cancelada y la clase devuelta; un fallo del correo no lo deshace.
+      console.warn('Aviso de clase cancelada sin enviar a ' + u.email + ': ' + e);
+    }
+  });
+}
+
 function attendance_(fecha, instructorId) {
   if (!isYmd_(fecha)) throw userError_('Fecha no válida.');
   const dia = weekday_(fecha);
   const usuarios = rows_('Usuarios');
   const reservas = rows_('Reservas').filter(r => r.fecha === fecha && r.estado !== 'cancelada');
   return rows_('Horario').filter(s => s.dia === dia && s.activo)
-    .map(s => Object.assign({}, s, { instructorId: instructorOn_(s, fecha) }))
+    .map(s => Object.assign({}, s, { instructorId: instructorOn_(s, fecha), cancelada: isCancelled_(s.id, fecha) }))
     .filter(s => !instructorId || s.instructorId === instructorId)
     .sort((a, b) => a.hora < b.hora ? -1 : 1)
     .map(s => ({
